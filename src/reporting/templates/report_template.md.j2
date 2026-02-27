@@ -1,0 +1,19 @@
+# {{ terminology.overview }}
+
+- Board: {{ board_title }}
+- Language: {{ language }}
+
+# {{ terminology.dimension_analysis }}
+
+{% for line in dimension_lines %}- {{ line }}
+{% endfor %}
+
+# {{ terminology.key_findings }}
+
+{% for finding in key_findings %}- {{ finding }}
+{% endfor %}
+
+# {{ terminology.risks_recommendations }}
+
+{% for item in recommendations %}- {{ item }}
+{% endfor %}
