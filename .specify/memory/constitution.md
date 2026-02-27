@@ -1,50 +1,98 @@
-# [PROJECT_NAME] Constitution
-<!-- Example: Spec Constitution, TaskFlow Constitution, etc. -->
+<!--
+Sync Impact Report
+- Version change: 0.0.0 (template baseline) -> 1.0.0
+- Modified principles:
+  - Principle slot 1 -> I. Code Quality Is Enforced
+  - Principle slot 2 -> II. Tests Define Done
+  - Principle slot 3 -> III. User Experience Consistency
+  - Principle slot 4 -> IV. Performance Is a First-Class Requirement
+- Added sections:
+  - Engineering Standards
+  - Delivery Workflow & Quality Gates
+- Removed sections:
+  - Principle slot 5 (unused)
+- Templates requiring updates:
+  - ✅ updated: .specify/templates/plan-template.md
+  - ✅ updated: .specify/templates/spec-template.md
+  - ✅ updated: .specify/templates/tasks-template.md
+  - ✅ no command templates present: .specify/templates/commands/*.md
+  - ✅ no runtime guidance docs detected (README.md, docs/quickstart.md)
+- Follow-up TODOs:
+  - None
+-->
+
+# Agent Workflow Constitution
 
 ## Core Principles
 
-### [PRINCIPLE_1_NAME]
-<!-- Example: I. Library-First -->
-[PRINCIPLE_1_DESCRIPTION]
-<!-- Example: Every feature starts as a standalone library; Libraries must be self-contained, independently testable, documented; Clear purpose required - no organizational-only libraries -->
+### I. Code Quality Is Enforced
+All production code MUST pass linting and static analysis with zero errors, use
+intentional naming, and avoid dead code paths. Non-trivial logic changes MUST
+include peer review and a short complexity justification when complexity
+increases.
 
-### [PRINCIPLE_2_NAME]
-<!-- Example: II. CLI Interface -->
-[PRINCIPLE_2_DESCRIPTION]
-<!-- Example: Every library exposes functionality via CLI; Text in/out protocol: stdin/args → stdout, errors → stderr; Support JSON + human-readable formats -->
+Rationale: Enforced code quality keeps the codebase maintainable and reduces
+defect introduction.
 
-### [PRINCIPLE_3_NAME]
-<!-- Example: III. Test-First (NON-NEGOTIABLE) -->
-[PRINCIPLE_3_DESCRIPTION]
-<!-- Example: TDD mandatory: Tests written → User approved → Tests fail → Then implement; Red-Green-Refactor cycle strictly enforced -->
+### II. Tests Define Done
+Every functional change MUST include automated tests at the appropriate level
+(unit, integration, and contract where applicable). Bug fixes MUST add a
+regression test that fails before the fix and passes after it. Merge approval
+MUST be blocked until required tests pass in CI.
 
-### [PRINCIPLE_4_NAME]
-<!-- Example: IV. Integration Testing -->
-[PRINCIPLE_4_DESCRIPTION]
-<!-- Example: Focus areas requiring integration tests: New library contract tests, Contract changes, Inter-service communication, Shared schemas -->
+Rationale: Mandatory testing prevents regressions and provides objective proof
+of correctness.
 
-### [PRINCIPLE_5_NAME]
-<!-- Example: V. Observability, VI. Versioning & Breaking Changes, VII. Simplicity -->
-[PRINCIPLE_5_DESCRIPTION]
-<!-- Example: Text I/O ensures debuggability; Structured logging required; Or: MAJOR.MINOR.BUILD format; Or: Start simple, YAGNI principles -->
+### III. User Experience Consistency
+User-facing changes MUST follow established interaction patterns, terminology,
+and accessibility baselines for the product. New UI patterns or copy patterns
+MUST include a documented rationale and update shared guidance before release.
+Acceptance criteria for user-facing work MUST include UX consistency checks.
 
-## [SECTION_2_NAME]
-<!-- Example: Additional Constraints, Security Requirements, Performance Standards, etc. -->
+Rationale: Consistent user experience reduces cognitive load and support costs.
 
-[SECTION_2_CONTENT]
-<!-- Example: Technology stack requirements, compliance standards, deployment policies, etc. -->
+### IV. Performance Is a First-Class Requirement
+Each feature MUST define measurable performance budgets before implementation
+(for example: latency, throughput, memory, startup time, or rendering
+responsiveness as applicable). Releases MUST verify budget compliance. Any
+accepted regression MUST include explicit approval, mitigation, and a due date.
 
-## [SECTION_3_NAME]
-<!-- Example: Development Workflow, Review Process, Quality Gates, etc. -->
+Rationale: Performance is a product quality attribute that directly affects
+reliability and user trust.
 
-[SECTION_3_CONTENT]
-<!-- Example: Code review requirements, testing gates, deployment approval process, etc. -->
+## Engineering Standards
+
+- Plans MUST document linting/static-analysis tooling, required test layers, UX
+  consistency references, and measurable performance budgets.
+- Specifications MUST express acceptance criteria in testable language and
+  include measurable outcomes for user experience and performance.
+- Tasks MUST include explicit work for automated tests, UX consistency
+  validation, and performance verification.
+
+## Delivery Workflow & Quality Gates
+
+1. Plan Gate: constitution checks for code quality, testing, UX consistency, and
+   performance budgets are complete.
+2. Build Gate: linting, static analysis, and required automated tests pass
+   locally and in CI.
+3. Review Gate: peer review confirms consistency with UX standards and rejects
+   unexplained complexity or unapproved regressions.
+4. Release Gate: critical user journeys and agreed performance budgets are
+   validated; any exception is logged with owner and due date.
 
 ## Governance
-<!-- Example: Constitution supersedes all other practices; Amendments require documentation, approval, migration plan -->
 
-[GOVERNANCE_RULES]
-<!-- Example: All PRs/reviews must verify compliance; Complexity must be justified; Use [GUIDANCE_FILE] for runtime development guidance -->
+- This constitution supersedes conflicting planning, specification,
+  implementation, and review conventions.
+- Amendments require a documented proposal, reviewer approval, updates to
+  affected templates/guidance files, and migration notes for in-flight work when
+  rules materially change.
+- Constitution semantic versioning MUST follow:
+  - MAJOR for incompatible removals or principle redefinitions.
+  - MINOR for new principles/sections or materially expanded requirements.
+  - PATCH for clarifications, wording improvements, or typo-only changes.
+- Compliance reviews are mandatory at plan creation, before merge, and before
+  release. Violations MUST be recorded in a tracked exception list with owner
+  and due date.
 
-**Version**: [CONSTITUTION_VERSION] | **Ratified**: [RATIFICATION_DATE] | **Last Amended**: [LAST_AMENDED_DATE]
-<!-- Example: Version: 2.1.1 | Ratified: 2025-06-13 | Last Amended: 2025-07-16 -->
+**Version**: 1.0.0 | **Ratified**: 2026-02-27 | **Last Amended**: 2026-02-27

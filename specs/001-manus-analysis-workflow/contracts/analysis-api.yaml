@@ -1,0 +1,343 @@
+openapi: 3.0.3
+info:
+  title: Canvas Analysis Workflow API
+  version: 0.1.0
+  description: API contract for LangGraph-orchestrated whiteboard analysis and markdown reporting.
+servers:
+  - url: https://api.example.com
+paths:
+  /analysis-jobs:
+    post:
+      summary: Create analysis job
+      operationId: createAnalysisJob
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAnalysisJobRequest'
+      responses:
+        '202':
+          description: Job accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnalysisJobAccepted'
+  /analysis-jobs/{jobId}:
+    get:
+      summary: Get analysis job status
+      operationId: getAnalysisJobStatus
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Job status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnalysisJobStatusResponse'
+        '404':
+          description: Job not found
+  /analysis-jobs/{jobId}/report:
+    get:
+      summary: Get markdown report
+      operationId: getAnalysisReport
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Markdown report and metadata
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnalysisReportResponse'
+        '409':
+          description: Job not completed
+  /analysis-compare:
+    post:
+      summary: Compare two reports of same board
+      operationId: compareAnalysisReports
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CompareReportsRequest'
+      responses:
+        '200':
+          description: Comparison summary
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ComparisonResultResponse'
+
+components:
+  schemas:
+    CreateAnalysisJobRequest:
+      type: object
+      required:
+        - boardSnapshot
+        - dimensions
+      properties:
+        boardSnapshot:
+          $ref: '#/components/schemas/BoardSnapshot'
+        dimensions:
+          type: array
+          minItems: 1
+          items:
+            type: string
+        language:
+          type: string
+          description: Optional BCP-47 language tag. If omitted, service resolves language from context.
+          example: en-US
+        contextHints:
+          type: object
+          description: Optional hints for language resolution.
+          properties:
+            userLocale:
+              type: string
+              example: en-US
+            contentLocale:
+              type: string
+              example: zh-CN
+            timezone:
+              type: string
+              example: Asia/Shanghai
+
+    AnalysisJobAccepted:
+      type: object
+      required:
+        - jobId
+        - status
+      properties:
+        jobId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [QUEUED]
+
+    AnalysisJobStatusResponse:
+      type: object
+      required:
+        - jobId
+        - status
+      properties:
+        jobId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [DRAFT, QUEUED, RUNNING, RETRYING, SUCCEEDED, FAILED]
+        progress:
+          type: integer
+          minimum: 0
+          maximum: 100
+        message:
+          type: string
+
+    AnalysisReportResponse:
+      type: object
+      required:
+        - reportId
+        - boardId
+        - language
+        - languageSource
+        - markdown
+        - sections
+        - evidenceIndex
+      properties:
+        reportId:
+          type: string
+          format: uuid
+        boardId:
+          type: string
+          format: uuid
+        language:
+          type: string
+          description: Resolved language used for report rendering.
+          example: en-US
+        languageSource:
+          type: string
+          enum: [request, user_context, content_inference, default]
+        markdown:
+          type: string
+        sections:
+          type: array
+          items:
+            type: string
+        evidenceIndex:
+          type: array
+          items:
+            $ref: '#/components/schemas/EvidenceReference'
+
+    CompareReportsRequest:
+      type: object
+      required:
+        - baseReportId
+        - targetReportId
+      properties:
+        baseReportId:
+          type: string
+          format: uuid
+        targetReportId:
+          type: string
+          format: uuid
+
+    ComparisonResultResponse:
+      type: object
+      required:
+        - comparisonId
+        - impactSummary
+      properties:
+        comparisonId:
+          type: string
+          format: uuid
+        addedFindings:
+          type: array
+          items:
+            type: string
+        removedFindings:
+          type: array
+          items:
+            type: string
+        changedFindings:
+          type: array
+          items:
+            type: string
+        impactSummary:
+          type: string
+
+    BoardSnapshot:
+      type: object
+      required:
+        - boardId
+        - title
+        - creatorId
+        - nodes
+        - edges
+        - viewport
+        - updatedAt
+      properties:
+        boardId:
+          type: string
+          format: uuid
+        title:
+          type: string
+        creatorId:
+          type: string
+        nodes:
+          type: array
+          items:
+            $ref: '#/components/schemas/WhiteboardNode'
+        edges:
+          type: array
+          items:
+            $ref: '#/components/schemas/WhiteboardEdge'
+        viewport:
+          type: object
+          required: [x, y, zoom]
+          properties:
+            x:
+              type: number
+            y:
+              type: number
+            zoom:
+              type: number
+              exclusiveMinimum: 0
+        updatedAt:
+          type: string
+          format: date-time
+
+    WhiteboardNode:
+      type: object
+      required:
+        - id
+        - type
+        - pos
+        - size
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+          enum: [note, ai_note, scribble, section, link, report, table]
+        pos:
+          type: object
+          required: [x, y]
+          properties:
+            x:
+              type: number
+            y:
+              type: number
+        size:
+          type: object
+          required: [x, y]
+          properties:
+            x:
+              type: number
+            y:
+              type: number
+        content:
+          type: string
+        metadata:
+          type: object
+          additionalProperties: true
+        referenced:
+          type: array
+          items:
+            oneOf:
+              - type: string
+              - type: object
+                additionalProperties: true
+
+    WhiteboardEdge:
+      type: object
+      required:
+        - id
+        - sourceNodeId
+        - targetNodeId
+      properties:
+        id:
+          type: string
+        sourceNodeId:
+          type: string
+        targetNodeId:
+          type: string
+        label:
+          type: string
+        metadata:
+          type: object
+          additionalProperties: true
+
+    EvidenceReference:
+      type: object
+      required:
+        - evidenceId
+        - sourceType
+        - sourceId
+        - confidence
+      properties:
+        evidenceId:
+          type: string
+        sourceType:
+          type: string
+          enum: [node, edge, reference_text, derived_metric]
+        sourceId:
+          type: string
+        excerpt:
+          type: string
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
