@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from analyzers.comparison.report_comparison_analyzer import ReportComparisonAnalyzer
+from analyzers.comparison.report_comparison_analyzer import (
+    ComparisonResult,
+    ReportComparisonAnalyzer,
+)
 from models.analysis_report import AnalysisReport
 from reporting.renderer.consistency_checker import ConsistencyChecker
 
@@ -14,7 +17,7 @@ class CompareReportsNode:
         self._analyzer = analyzer
         self._consistency_checker = consistency_checker
 
-    def run(self, base: AnalysisReport, target: AnalysisReport) -> dict:
+    def run(self, base: AnalysisReport, target: AnalysisReport) -> ComparisonResult:
         comparison = self._analyzer.compare(base, target)
         consistency_issues = self._consistency_checker.check(target)
         if consistency_issues:

@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+from typing import Any, TypedDict, cast
+
+from langgraph.graph import END, START, StateGraph
+
 from analyzers.dimension_registry import DimensionRegistry
 from analyzers.topology.topology_analyzer import TopologyAnalyzer
 from config.settings import Settings
@@ -11,12 +15,12 @@ from workflow.nodes.run_dimensions_node import RunDimensionsNode
 from workflow.state.analysis_state import AnalysisState
 
 
-class AnalysisWorkflowBuilder:
-    """LangGraph-compatible orchestration surface.
+class WorkflowGraphState(TypedDict):
+    state: AnalysisState
 
-    The current implementation keeps the node boundaries explicit so it can be
-    upgraded to a real LangGraph state graph without changing business logic.
-    """
+
+class AnalysisWorkflowBuilder:
+    """LangGraph-based orchestration for analysis workflow."""
 
     def __init__(
         self,
@@ -38,26 +42,59 @@ class AnalysisWorkflowBuilder:
         self._generate_report_node = generate_report_node
         self._language_resolver = language_resolver
         self._dimension_registry = dimension_registry
+        self._graph = self._build_graph()
 
-    def run(self, state: AnalysisState) -> AnalysisState:
-        state = self._parse_snapshot_node.run(state)
-        assert state.board_snapshot is not None
-        snapshot = state.board_snapshot
+    def _build_graph(self) -> Any:
+        graph = StateGraph(WorkflowGraphState)
+        graph.add_node("parse_snapshot", self._parse_snapshot)
+        graph.add_node("run_dimensions", self._run_dimensions)
+        graph.add_node("resolve_language", self._resolve_language)
+        graph.add_node("collect_evidence", self._collect_evidence)
+        graph.add_node("generate_report", self._generate_report)
 
+        graph.add_edge(START, "parse_snapshot")
+        graph.add_edge("parse_snapshot", "run_dimensions")
+        graph.add_edge("run_dimensions", "resolve_language")
+        graph.add_edge("resolve_language", "collect_evidence")
+        graph.add_edge("collect_evidence", "generate_report")
+        graph.add_edge("generate_report", END)
+        return graph.compile()
+
+    def _parse_snapshot(self, graph_state: WorkflowGraphState) -> WorkflowGraphState:
+        state = self._parse_snapshot_node.run(graph_state["state"])
+        return {"state": state}
+
+    def _run_dimensions(self, graph_state: WorkflowGraphState) -> WorkflowGraphState:
+        state = graph_state["state"]
         self._dimension_registry.register("topology", self._topology_analyzer.analyze)
         state = self._run_dimensions_node.run(state)
         if "topology" not in state.analysis_outputs:
             state.analysis_outputs["topology"] = {"findings": ["Topology dimension not selected"]}
+        return {"state": state}
+
+    def _resolve_language(self, graph_state: WorkflowGraphState) -> WorkflowGraphState:
+        state = graph_state["state"]
+        if state.board_snapshot is None:
+            raise ValueError("board_snapshot is required before language resolution")
 
         resolved_language, language_source = self._language_resolver.resolve(
             request_language=state.requested_language,
             context_hints=state.context_hints,
-            snapshot=snapshot,
+            snapshot=state.board_snapshot,
             default_language=self._settings.default_language,
         )
         state.resolved_language = resolved_language
         state.language_source = language_source
+        return {"state": state}
 
-        state = self._collect_evidence_node.run(state)
-        state = self._generate_report_node.run(state)
-        return state
+    def _collect_evidence(self, graph_state: WorkflowGraphState) -> WorkflowGraphState:
+        state = self._collect_evidence_node.run(graph_state["state"])
+        return {"state": state}
+
+    def _generate_report(self, graph_state: WorkflowGraphState) -> WorkflowGraphState:
+        state = self._generate_report_node.run(graph_state["state"])
+        return {"state": state}
+
+    def run(self, state: AnalysisState) -> AnalysisState:
+        result = cast(WorkflowGraphState, self._graph.invoke({"state": state}))
+        return result["state"]

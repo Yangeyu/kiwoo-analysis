@@ -6,13 +6,13 @@ Date: 2026-02-28
 
 - `ruff check .`
 - `python -m pytest`
-- `mypy src` (not available in local runtime)
+- `mypy src`
 
 ## Results
 
 - Ruff: PASS
 - Pytest: PASS (`13 passed`)
-- Mypy: NOT RUN (`mypy: command not found`), enforced in CI workflow
+- Mypy: PASS (`Success: no issues found in 52 source files`)
 
 ## Coverage by Story
 

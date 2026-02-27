@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from analyzers.comparison.report_comparison_analyzer import ReportComparisonAnalyzer
+from analyzers.comparison.report_comparison_analyzer import (
+    ComparisonResult,
+    ReportComparisonAnalyzer,
+)
 from models.analysis_job import AnalysisJob, AnalysisJobStatus
 from models.analysis_report import AnalysisReport
 from reporting.renderer.consistency_checker import ConsistencyChecker
@@ -81,7 +84,7 @@ class AnalysisWorkflowService:
     def get_report(self, job_id: UUID) -> AnalysisReport | None:
         return self._repository.get_report(job_id)
 
-    def compare_reports(self, base_report_id: UUID, target_report_id: UUID) -> dict:
+    def compare_reports(self, base_report_id: UUID, target_report_id: UUID) -> ComparisonResult:
         base = self._report_repository.get(base_report_id)
         target = self._report_repository.get(target_report_id)
         if not base or not target:

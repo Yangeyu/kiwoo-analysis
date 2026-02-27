@@ -91,4 +91,4 @@ curl -X POST "https://api.example.com/analysis-compare" \
 
 - 本地已执行 `python -m pytest`，US1/US2/US3 相关单元、契约、集成与性能预算测试通过。
 - 本地已执行 `ruff check .`，lint 通过。
-- `mypy` 在当前环境不可用（命令不存在），已通过 `mypy.ini` 与 CI 任务声明静态检查门禁。
+- 本地已执行 `mypy src`，静态类型检查通过。

@@ -26,3 +26,21 @@ structured Markdown analysis report with evidence traceability.
 - Contract: endpoint shape and required fields
 - Integration: report generation and report comparison
 - Performance: standard board latency budget test
+
+## Local Run
+
+1. Install dependencies:
+
+   ```bash
+   python -m pip install -e .[dev]
+   ```
+
+2. Start API service with uvicorn:
+
+   ```bash
+   uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
+   ```
+
+3. Open API docs:
+
+   - `http://127.0.0.1:8000/docs`

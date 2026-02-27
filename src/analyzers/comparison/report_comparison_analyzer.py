@@ -1,10 +1,19 @@
 from __future__ import annotations
 
+from typing import TypedDict
+
 from models.analysis_report import AnalysisReport
 
 
+class ComparisonResult(TypedDict):
+    addedFindings: list[str]
+    removedFindings: list[str]
+    changedFindings: list[str]
+    impactSummary: str
+
+
 class ReportComparisonAnalyzer:
-    def compare(self, base: AnalysisReport, target: AnalysisReport) -> dict:
+    def compare(self, base: AnalysisReport, target: AnalysisReport) -> ComparisonResult:
         base_findings = set(_extract_findings(base))
         target_findings = set(_extract_findings(target))
 
