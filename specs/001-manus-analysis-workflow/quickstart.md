@@ -86,3 +86,9 @@ curl -X POST "https://api.example.com/analysis-compare" \
 - Integration: 输入快照到报告输出的全链路。
 - Contract: OpenAPI 契约兼容性与字段校验。
 - Snapshot: 报告结构与术语一致性回归。
+
+## 7) 验证记录（2026-02-28）
+
+- 本地已执行 `python -m pytest`，US1/US2/US3 相关单元、契约、集成与性能预算测试通过。
+- 本地已执行 `ruff check .`，lint 通过。
+- `mypy` 在当前环境不可用（命令不存在），已通过 `mypy.ini` 与 CI 任务声明静态检查门禁。
