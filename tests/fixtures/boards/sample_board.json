@@ -1,0 +1,30 @@
+{
+  "boardId": "8d1bc2f7-7cde-4fc1-9682-fcd34b4d978e",
+  "title": "Fixture Board",
+  "creatorId": "u_fixture",
+  "nodes": [
+    {
+      "id": "n1",
+      "type": "note",
+      "pos": {"x": 0, "y": 0},
+      "size": {"x": 100, "y": 80},
+      "content": "discover"
+    },
+    {
+      "id": "n2",
+      "type": "note",
+      "pos": {"x": 100, "y": 60},
+      "size": {"x": 100, "y": 80},
+      "content": "decide"
+    }
+  ],
+  "edges": [
+    {
+      "id": "e1",
+      "sourceNodeId": "n1",
+      "targetNodeId": "n2"
+    }
+  ],
+  "viewport": {"x": 0, "y": 0, "zoom": 1},
+  "updatedAt": "2026-02-27T10:00:00Z"
+}
