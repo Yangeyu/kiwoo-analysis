@@ -1,5 +1,5 @@
-import { ToolRegistry } from "./registry.js"
-import type { ToolDefinition } from "../types.js"
+import { ToolRegistry } from "@/tool/registry"
+import type { ToolDefinition } from "@/types"
 
 export const BatchTool: ToolDefinition = {
   id: "batch",

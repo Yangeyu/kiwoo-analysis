@@ -1,11 +1,11 @@
-import { AgentRegistry } from "../agent/registry.js"
-import { SessionPrompt } from "../session/prompt.js"
-import { SessionStore } from "../session/store.js"
-import { GrepTool, ReadTool } from "../tool/basic.js"
-import { BashTool } from "../tool/bash.js"
-import { BatchTool } from "../tool/batch.js"
-import { ToolRegistry } from "../tool/registry.js"
-import { TaskTool } from "../tool/task.js"
+import { AgentRegistry } from "@/agent/registry"
+import { SessionPrompt } from "@/session/prompt"
+import { SessionStore } from "@/session/store"
+import { GrepTool, ReadTool } from "@/tool/basic"
+import { BashTool } from "@/tool/bash"
+import { BatchTool } from "@/tool/batch"
+import { ToolRegistry } from "@/tool/registry"
+import { TaskTool } from "@/tool/task"
 
 let bootstrapped = false
 

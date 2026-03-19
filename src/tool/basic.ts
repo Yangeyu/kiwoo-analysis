@@ -1,6 +1,6 @@
 import fs from "node:fs/promises"
 import path from "node:path"
-import type { ToolDefinition } from "../types.js"
+import type { ToolDefinition } from "@/types"
 
 export const ReadTool: ToolDefinition = {
   id: "read",
@@ -47,7 +47,7 @@ export const GrepTool: ToolDefinition = {
       const target = path.resolve(process.cwd(), relative)
       const content = await fs.readFile(target, "utf8")
       const lines = content.split("\n")
-      lines.forEach((line, index) => {
+      lines.forEach((line: string, index: number) => {
         if (line.includes(args.pattern)) {
           matches.push(`${relative}:${index + 1}: ${line.trim()}`)
         }

@@ -1,6 +1,6 @@
-import { LLM } from "../llm/index.js"
-import { RuntimeEvents } from "../runtime/events.js"
-import { SessionStore } from "./store.js"
+import { LLM, type LLMChunk } from "@/llm/index"
+import { RuntimeEvents } from "@/runtime/events"
+import { SessionStore } from "@/session/store"
 import {
   createID,
   type AgentInfo,
@@ -11,198 +11,271 @@ import {
   type ToolDefinition,
   type ToolPart,
   type UserMessage,
-} from "../types.js"
+} from "@/types"
+
+type ProcessorInput = {
+  session: SessionInfo
+  user: UserMessage
+  assistant: AssistantMessage
+  agent: AgentInfo
+  system: string[]
+  tools: ToolDefinition[]
+  abort: AbortSignal
+}
+
+type ProcessorContext = ProcessorInput & {
+  reasoningPart?: ReasoningPart
+}
+
+type ProcessorAction =
+  | { kind: "append-reasoning", textDelta: string }
+  | { kind: "append-text", textDelta: string }
+  | { kind: "finish", finishReason: AssistantMessage["finish"] }
+  | { kind: "fail", message: string }
+
+type ToolExecutionResult =
+  | { kind: "continue" }
+  | { kind: "stop" }
 
 export namespace SessionProcessor {
-  export async function process(input: {
-    session: SessionInfo
-    user: UserMessage
-    assistant: AssistantMessage
-    agent: AgentInfo
-    system: string[]
-    tools: ToolDefinition[]
-    abort: AbortSignal
-  }): Promise<ProcessorResult> {
+  export async function process(input: ProcessorInput): Promise<ProcessorResult> {
+    const context: ProcessorContext = { ...input }
     let sawToolCall = false
-    let reasoningPart: ReasoningPart | undefined
 
     const result = LLM.stream(input)
 
     for await (const chunk of result.fullStream) {
       input.abort.throwIfAborted()
 
-      if (chunk.type === "reasoning") {
-        RuntimeEvents.emit({
-          type: "reasoning",
-          sessionID: input.session.id,
-          agent: input.agent.name,
-          textDelta: chunk.textDelta,
-        })
-        if (!reasoningPart) {
-          reasoningPart = {
-            id: createID(),
-            type: "reasoning",
-            text: "",
-          }
-          SessionStore.addPart(input.session.id, input.assistant.id, reasoningPart)
-        }
-        reasoningPart.text += chunk.textDelta
-        SessionStore.updatePart(input.session.id, input.assistant.id, reasoningPart.id, {
-          text: reasoningPart.text,
-        })
-        continue
-      }
-
-      if (chunk.type === "text-delta") {
-        RuntimeEvents.emit({
-          type: "text",
-          sessionID: input.session.id,
-          agent: input.agent.name,
-          textDelta: chunk.textDelta,
-        })
-        reasoningPart = undefined
-        const nextText = (input.assistant.text ?? "") + chunk.textDelta
-        SessionStore.updateMessage(input.session.id, input.assistant.id, { text: nextText })
-        input.assistant.text = nextText
-        continue
-      }
-
       if (chunk.type === "tool-call") {
-        RuntimeEvents.emit({
-          type: "tool-call",
-          sessionID: input.session.id,
-          agent: input.agent.name,
-          tool: chunk.toolName,
-          args: chunk.args,
-        })
-        reasoningPart = undefined
         sawToolCall = true
-
-        const tool = input.tools.find((item) => item.id === chunk.toolName)
-        if (!tool) {
-          SessionStore.updateMessage(input.session.id, input.assistant.id, {
-            error: `Tool not available: ${chunk.toolName}`,
-            finish: "error",
-          })
-          return "stop"
-        }
-
-        const part: ToolPart = {
-          id: createID(),
-          type: "tool",
-          tool: chunk.toolName,
-          callID: chunk.toolCallId,
-          state: {
-            status: "running",
-            input: chunk.args,
-          },
-        }
-
-        SessionStore.addPart(input.session.id, input.assistant.id, part)
-
-        try {
-          const toolResult = await tool.execute(chunk.args, {
-            sessionID: input.session.id,
-            messageID: input.assistant.id,
-            agent: input.agent.name,
-            abort: input.abort,
-            async metadata() {},
-            async captureStructuredOutput(output) {
-              RuntimeEvents.emit({
-                type: "structured-output",
-                sessionID: input.session.id,
-                agent: input.agent.name,
-                output,
-              })
-              SessionStore.updateMessage(input.session.id, input.assistant.id, {
-                structured: output,
-              })
-              input.assistant.structured = output
-            },
-          })
-
-          SessionStore.updatePart(input.session.id, input.assistant.id, part.id, {
-            state: {
-              status: "completed",
-              input: chunk.args,
-              output: toolResult.output,
-            },
-          })
-          RuntimeEvents.emit({
-            type: "tool-result",
-            sessionID: input.session.id,
-            agent: input.agent.name,
-            tool: chunk.toolName,
-            output: toolResult.output,
-          })
-
-          if (chunk.toolName !== "StructuredOutput") {
-            SessionStore.addMessage(input.session.id, {
-              id: createID(),
-              role: "user",
-              sessionID: input.session.id,
-              agent: input.agent.name,
-              model: input.user.model,
-              text: `[tool:${chunk.toolName} result]\n${toolResult.output}`,
-            })
-          }
-          continue
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error)
-          SessionStore.updatePart(input.session.id, input.assistant.id, part.id, {
-            state: {
-              status: "error",
-              input: chunk.args,
-              error: message,
-            },
-          })
-          SessionStore.updateMessage(input.session.id, input.assistant.id, {
-            error: message,
-            finish: "error",
-          })
-          RuntimeEvents.emit({
-            type: "error",
-            sessionID: input.session.id,
-            agent: input.agent.name,
-            error: message,
-          })
-          return "stop"
-        }
-      }
-
-      if (chunk.type === "finish") {
-        SessionStore.updateMessage(input.session.id, input.assistant.id, {
-          finish: chunk.finishReason as AssistantMessage["finish"],
-        })
-        input.assistant.finish = chunk.finishReason as AssistantMessage["finish"]
-        RuntimeEvents.emit({
-          type: "finish",
-          sessionID: input.session.id,
-          agent: input.agent.name,
-          finishReason: chunk.finishReason,
-        })
+        const toolResult = await executeToolCall(context, chunk)
+        if (toolResult.kind === "stop") return "stop"
         continue
       }
 
-      if (chunk.type === "error") {
-        const message = chunk.error instanceof Error ? chunk.error.message : String(chunk.error)
-        SessionStore.updateMessage(input.session.id, input.assistant.id, {
-          error: message,
-          finish: "error",
-        })
-        RuntimeEvents.emit({
-          type: "error",
-          sessionID: input.session.id,
-          agent: input.agent.name,
-          error: message,
-        })
-        return "stop"
-      }
+      const actions = interpretChunk(chunk)
+      const applyResult = applyActions(context, actions)
+      if (applyResult === "stop") return "stop"
     }
 
     if (input.assistant.finish === "length") return "compact"
     if (input.assistant.error) return "stop"
     if (sawToolCall) return "continue"
     return "stop"
+  }
+}
+
+function interpretChunk(chunk: Exclude<LLMChunk, { type: "tool-call" }>): ProcessorAction[] {
+  switch (chunk.type) {
+    case "reasoning":
+      return [
+        {
+          kind: "append-reasoning",
+          textDelta: chunk.textDelta,
+        },
+      ]
+    case "text-delta":
+      return [
+        {
+          kind: "append-text",
+          textDelta: chunk.textDelta,
+        },
+      ]
+    case "finish":
+      return [
+        {
+          kind: "finish",
+          finishReason: chunk.finishReason as AssistantMessage["finish"],
+        },
+      ]
+    case "error":
+      return [
+        {
+          kind: "fail",
+          message: chunk.error instanceof Error ? chunk.error.message : String(chunk.error),
+        },
+      ]
+  }
+}
+
+function applyActions(context: ProcessorContext, actions: ProcessorAction[]): ProcessorResult | void {
+  for (const action of actions) {
+    if (action.kind === "append-reasoning") {
+      appendReasoning(context, action.textDelta)
+      continue
+    }
+
+    if (action.kind === "append-text") {
+      appendText(context, action.textDelta)
+      continue
+    }
+
+    if (action.kind === "finish") {
+      finishAssistant(context, action.finishReason)
+      continue
+    }
+
+    if (action.kind === "fail") {
+      failAssistant(context, action.message)
+      return "stop"
+    }
+  }
+}
+
+function appendReasoning(context: ProcessorContext, textDelta: string) {
+  RuntimeEvents.emit({
+    type: "reasoning",
+    sessionID: context.session.id,
+    agent: context.agent.name,
+    textDelta,
+  })
+
+  if (!context.reasoningPart) {
+    context.reasoningPart = SessionStore.appendReasoningPart(context.session.id, context.assistant.id, {
+      id: createID(),
+      type: "reasoning",
+      text: "",
+    })
+  }
+
+  const currentPart = context.reasoningPart
+  if (!currentPart) return
+  const nextText = currentPart.text + textDelta
+  context.reasoningPart = SessionStore.updatePart(context.session.id, context.assistant.id, currentPart.id, {
+    text: nextText,
+  }) as ReasoningPart
+}
+
+function appendText(context: ProcessorContext, textDelta: string) {
+  RuntimeEvents.emit({
+    type: "text",
+    sessionID: context.session.id,
+    agent: context.agent.name,
+    textDelta,
+  })
+
+  context.reasoningPart = undefined
+  const nextText = (context.assistant.text ?? "") + textDelta
+  context.assistant = SessionStore.updateMessage(context.session.id, context.assistant.id, {
+    text: nextText,
+  })
+}
+
+function finishAssistant(context: ProcessorContext, finishReason: AssistantMessage["finish"]) {
+  context.assistant = SessionStore.updateMessage(context.session.id, context.assistant.id, {
+    finish: finishReason,
+  })
+  RuntimeEvents.emit({
+    type: "finish",
+    sessionID: context.session.id,
+    agent: context.agent.name,
+    finishReason: finishReason ?? "stop",
+  })
+}
+
+function failAssistant(context: ProcessorContext, message: string) {
+  context.assistant = SessionStore.updateMessage(context.session.id, context.assistant.id, {
+    error: message,
+    finish: "error",
+  })
+  RuntimeEvents.emit({
+    type: "error",
+    sessionID: context.session.id,
+    agent: context.agent.name,
+    error: message,
+  })
+}
+
+async function executeToolCall(
+  context: ProcessorContext,
+  chunk: Extract<LLMChunk, { type: "tool-call" }>,
+): Promise<ToolExecutionResult> {
+  RuntimeEvents.emit({
+    type: "tool-call",
+    sessionID: context.session.id,
+    agent: context.agent.name,
+    tool: chunk.toolName,
+    args: chunk.args,
+  })
+
+  context.reasoningPart = undefined
+
+  const tool = context.tools.find((item) => item.id === chunk.toolName)
+  if (!tool) {
+    failAssistant(context, `Tool not available: ${chunk.toolName}`)
+    return { kind: "stop" }
+  }
+
+  const part = SessionStore.startToolPart(context.session.id, context.assistant.id, {
+    id: createID(),
+    type: "tool",
+    tool: chunk.toolName,
+    callID: chunk.toolCallId,
+    state: {
+      status: "running",
+      input: chunk.args,
+    },
+  })
+
+  try {
+    const toolResult = await tool.execute(chunk.args, {
+      sessionID: context.session.id,
+      messageID: context.assistant.id,
+      agent: context.agent.name,
+      abort: context.abort,
+      async metadata() { },
+      async captureStructuredOutput(output) {
+        RuntimeEvents.emit({
+          type: "structured-output",
+          sessionID: context.session.id,
+          agent: context.agent.name,
+          output,
+        })
+        context.assistant = SessionStore.updateMessage(context.session.id, context.assistant.id, {
+          structured: output,
+        })
+      },
+    })
+
+    SessionStore.updatePart(context.session.id, context.assistant.id, part.id, {
+      state: {
+        status: "completed",
+        input: chunk.args,
+        output: toolResult.output,
+      },
+    })
+
+    RuntimeEvents.emit({
+      type: "tool-result",
+      sessionID: context.session.id,
+      agent: context.agent.name,
+      tool: chunk.toolName,
+      output: toolResult.output,
+    })
+
+    if (chunk.toolName !== "StructuredOutput") {
+      SessionStore.appendToolResultMessage(context.session.id, {
+        id: createID(),
+        role: "user",
+        sessionID: context.session.id,
+        agent: context.agent.name,
+        model: context.user.model,
+        text: `[tool:${chunk.toolName} result]\n${toolResult.output}`,
+      })
+    }
+
+    return { kind: "continue" }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    SessionStore.updatePart(context.session.id, context.assistant.id, part.id, {
+      state: {
+        status: "error",
+        input: chunk.args,
+        error: message,
+      },
+    })
+    failAssistant(context, message)
+    return { kind: "stop" }
   }
 }

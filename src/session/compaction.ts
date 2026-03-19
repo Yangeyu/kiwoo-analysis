@@ -1,6 +1,6 @@
-import { SessionStore } from "./store.js"
-import { RuntimeEvents } from "../runtime/events.js"
-import { createID, type AssistantMessage, type SessionInfo, type UserMessage } from "../types.js"
+import { RuntimeEvents } from "@/runtime/events"
+import { SessionStore } from "@/session/store"
+import { createID, type AssistantMessage, type SessionInfo, type UserMessage } from "@/types"
 
 export namespace SessionCompaction {
   export function shouldCompact(session: SessionInfo) {

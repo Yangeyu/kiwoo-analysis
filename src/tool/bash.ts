@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process"
 import path from "node:path"
-import type { ToolDefinition } from "../types.js"
+import type { ToolDefinition } from "@/types"
 
 type BashArgs = {
   command: string
@@ -119,11 +119,11 @@ async function runCommand(input: {
       stderr += chunk
     })
 
-    child.on("error", (error) => {
+    child.on("error", (error: Error) => {
       fail(error)
     })
 
-    child.on("close", (exitCode) => {
+    child.on("close", (exitCode: number | null) => {
       finish({ stdout, stderr, exitCode, timedOut })
     })
   })

@@ -1,4 +1,4 @@
-import type { AgentInfo } from "../types.js"
+import type { AgentInfo } from "@/types"
 
 export const AgentRegistry = {
   agents: new Map<string, AgentInfo>(),

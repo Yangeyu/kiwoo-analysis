@@ -1,4 +1,4 @@
-import type { AgentInfo, AssistantMessage, SessionInfo, ToolDefinition, UserMessage } from "../types.js"
+import type { AgentInfo, AssistantMessage, SessionInfo, ToolDefinition, UserMessage } from "@/types"
 
 export type LLMInput = {
   session: SessionInfo

@@ -1,4 +1,13 @@
-import { createID, type AssistantMessage, type MessagePart, type SessionInfo, type SessionMessage } from "../types.js"
+import {
+  createID,
+  type AssistantMessage,
+  type MessagePart,
+  type ReasoningPart,
+  type SessionInfo,
+  type SessionMessage,
+  type ToolPart,
+  type UserMessage,
+} from "@/types"
 
 export const SessionStore = {
   sessions: new Map<string, SessionInfo>(),
@@ -27,6 +36,14 @@ export const SessionStore = {
     return message
   },
 
+  appendUserMessage(sessionID: string, message: UserMessage) {
+    return this.addMessage(sessionID, message)
+  },
+
+  appendAssistantMessage(sessionID: string, message: AssistantMessage) {
+    return this.addMessage(sessionID, message)
+  },
+
   updateMessage(sessionID: string, messageID: string, patch: Partial<AssistantMessage>) {
     const session = this.get(sessionID)
     const index = session.messages.findIndex((message) => message.id === messageID)
@@ -45,6 +62,14 @@ export const SessionStore = {
     return part
   },
 
+  appendReasoningPart(sessionID: string, messageID: string, part: ReasoningPart) {
+    return this.addPart(sessionID, messageID, part) as ReasoningPart
+  },
+
+  startToolPart(sessionID: string, messageID: string, part: ToolPart) {
+    return this.addPart(sessionID, messageID, part) as ToolPart
+  },
+
   updatePart(sessionID: string, messageID: string, partID: string, patch: Partial<MessagePart>) {
     const session = this.get(sessionID)
     const parts = session.parts[messageID] || []
@@ -59,5 +84,9 @@ export const SessionStore = {
 
   getParts(sessionID: string, messageID: string) {
     return this.get(sessionID).parts[messageID] || []
+  },
+
+  appendToolResultMessage(sessionID: string, message: UserMessage) {
+    return this.addMessage(sessionID, message)
   },
 }

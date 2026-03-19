@@ -1,5 +1,5 @@
-import { attachConsoleLogger, type OutputMode } from "./runtime/logger.js"
-import { bootstrapRuntime, runPrompt } from "./runtime/bootstrap.js"
+import { attachConsoleLogger, type OutputMode } from "@/runtime/logger"
+import { bootstrapRuntime, runPrompt } from "@/runtime/bootstrap"
 
 function parseArgs(argv: string[]) {
   const args = [...argv]

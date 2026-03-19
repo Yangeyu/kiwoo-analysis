@@ -1,5 +1,5 @@
-import { createID } from "../types.js"
-import type { LLMInput, LLMStreamResult, LLMChunk } from "./types.js"
+import { createID } from "@/types"
+import type { LLMChunk, LLMInput, LLMStreamResult } from "@/llm/types"
 
 export function fakeStream(input: LLMInput): LLMStreamResult {
   return {

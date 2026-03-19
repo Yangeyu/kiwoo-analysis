@@ -1,4 +1,4 @@
-import type { AgentInfo, ToolDefinition } from "../types.js"
+import type { AgentInfo, ToolDefinition } from "@/types"
 
 export const ToolRegistry = {
   tools: new Map<string, ToolDefinition>(),

@@ -1,7 +1,7 @@
-import { AgentRegistry } from "../agent/registry.js"
-import { SessionPrompt } from "../session/prompt.js"
-import { SessionStore } from "../session/store.js"
-import type { AssistantMessage, ToolDefinition } from "../types.js"
+import { AgentRegistry } from "@/agent/registry"
+import { SessionPrompt } from "@/session/prompt"
+import { SessionStore } from "@/session/store"
+import type { AssistantMessage, ToolDefinition } from "@/types"
 
 export const TaskTool: ToolDefinition = {
   id: "task",

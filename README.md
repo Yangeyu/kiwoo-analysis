@@ -25,6 +25,13 @@ This project extracts a compact core of the `opencode` runtime shape, focused on
 - `src/session/compaction.ts`: compact old context into a summary message
 - `src/index.ts`: demo bootstrap
 
+## Import Conventions
+
+- Use `@/` absolute imports for project source modules, for example `@/session/prompt`.
+- Do not use relative imports for project-internal modules unless there is a strong reason.
+- Do not add `.js` suffixes to TypeScript source imports.
+- The build uses `tsc-alias` to rewrite alias imports for runnable ESM output in `dist/`.
+
 ## Run
 
 ```bash

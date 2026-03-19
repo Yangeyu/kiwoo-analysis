@@ -1,5 +1,5 @@
-import type { RuntimeEvent } from "./events.js"
-import { RuntimeEvents } from "./events.js"
+import type { RuntimeEvent } from "@/runtime/events"
+import { RuntimeEvents } from "@/runtime/events"
 
 export type OutputMode = "stream" | "buffered"
 
@@ -7,11 +7,26 @@ type RendererOptions = {
   outputMode: OutputMode
 }
 
-type TurnBuffer = {
+type TurnOutput = {
   reasoning: string
   answer: string
-  streamingReasoning: boolean
-  streamingAnswer: boolean
+}
+
+type TurnKey = {
+  sessionID: string
+  agent: string
+}
+
+type StreamState = {
+  reasoningOpen: boolean
+  answerOpen: boolean
+}
+
+type OutputRenderer = {
+  onReasoning(event: Extract<RuntimeEvent, { type: "reasoning" }>, output: TurnOutput): void
+  onText(event: Extract<RuntimeEvent, { type: "text" }>, output: TurnOutput): void
+  flush(event: TurnKey, output: TurnOutput): void
+  detach(outputs: Map<string, TurnOutput>): void
 }
 
 function preview(value: unknown, max = 120) {
@@ -20,17 +35,8 @@ function preview(value: unknown, max = 120) {
   return text.length > max ? `${text.slice(0, max)}...` : text
 }
 
-function turnKey(event: { sessionID: string; agent: string }) {
-  return `${event.sessionID}:${event.agent}`
-}
-
-function createBuffer(): TurnBuffer {
-  return {
-    reasoning: "",
-    answer: "",
-    streamingReasoning: false,
-    streamingAnswer: false,
-  }
+function toTurnID(key: TurnKey) {
+  return `${key.sessionID}:${key.agent}`
 }
 
 function eventLine(event: RuntimeEvent) {
@@ -57,124 +63,164 @@ function eventLine(event: RuntimeEvent) {
   }
 }
 
-class ConsoleRenderer {
-  private buffers = new Map<string, TurnBuffer>()
+class BufferedOutputRenderer implements OutputRenderer {
+  onReasoning(_: Extract<RuntimeEvent, { type: "reasoning" }>, output: TurnOutput) {
+    void output
+  }
 
-  constructor(private readonly options: RendererOptions) {}
+  onText(_: Extract<RuntimeEvent, { type: "text" }>, output: TurnOutput) {
+    void output
+  }
+
+  flush(event: TurnKey, output: TurnOutput) {
+    if (output.reasoning.trim()) {
+      console.log(`[reasoning:${event.agent}] ${output.reasoning.trim()}`)
+    }
+    if (output.answer.trim()) {
+      console.log(`[final:${event.agent}] ${output.answer.trim()}`)
+    }
+  }
+
+  detach(outputs: Map<string, TurnOutput>) {
+    for (const [turnID, output] of outputs.entries()) {
+      const [sessionID, agent] = turnID.split(":")
+      if (sessionID && agent) {
+        this.flush({ sessionID, agent }, output)
+      }
+    }
+  }
+}
+
+class StreamingOutputRenderer implements OutputRenderer {
+  private states = new Map<string, StreamState>()
+
+  onReasoning(event: Extract<RuntimeEvent, { type: "reasoning" }>, output: TurnOutput) {
+    void output
+    const state = this.getState(event)
+    if (!state.reasoningOpen) {
+      this.closeAnswer(state)
+      process.stdout.write(`[reasoning:${event.agent}] `)
+      state.reasoningOpen = true
+    }
+    process.stdout.write(event.textDelta)
+  }
+
+  onText(event: Extract<RuntimeEvent, { type: "text" }>, output: TurnOutput) {
+    void output
+    const state = this.getState(event)
+    this.closeReasoning(state)
+    if (!state.answerOpen) {
+      process.stdout.write(`[final:${event.agent}] `)
+      state.answerOpen = true
+    }
+    process.stdout.write(event.textDelta)
+  }
+
+  flush(event: TurnKey, _: TurnOutput) {
+    const state = this.states.get(toTurnID(event))
+    if (!state) return
+    this.closeReasoning(state)
+    this.closeAnswer(state)
+    this.states.delete(toTurnID(event))
+  }
+
+  detach(outputs: Map<string, TurnOutput>) {
+    void outputs
+    for (const [turnID] of this.states.entries()) {
+      const [sessionID, agent] = turnID.split(":")
+      if (sessionID && agent) {
+        this.flush({ sessionID, agent }, { reasoning: "", answer: "" })
+      }
+    }
+  }
+
+  private getState(key: TurnKey) {
+    const turnID = toTurnID(key)
+    const existing = this.states.get(turnID)
+    if (existing) return existing
+    const created: StreamState = {
+      reasoningOpen: false,
+      answerOpen: false,
+    }
+    this.states.set(turnID, created)
+    return created
+  }
+
+  private closeReasoning(state: StreamState) {
+    if (!state.reasoningOpen) return
+    process.stdout.write("\n")
+    state.reasoningOpen = false
+  }
+
+  private closeAnswer(state: StreamState) {
+    if (!state.answerOpen) return
+    process.stdout.write("\n")
+    state.answerOpen = false
+  }
+}
+
+class ConsoleLogger {
+  private outputs = new Map<string, TurnOutput>()
+  private renderer: OutputRenderer
+
+  constructor(options: RendererOptions) {
+    this.renderer = options.outputMode === "stream" ? new StreamingOutputRenderer() : new BufferedOutputRenderer()
+  }
 
   handle = (event: RuntimeEvent) => {
-    switch (event.type) {
-      case "reasoning":
-        this.onReasoning(event)
-        return
-      case "text":
-        this.onText(event)
-        return
-      case "tool-call":
-      case "tool-result":
-      case "structured-output":
-      case "finish":
-      case "error":
-        this.flushTurn(event)
-        this.printEvent(event)
-        return
-      case "session-start":
-      case "loop-step":
-      case "compaction":
-        this.printEvent(event)
-        return
-    }
-  }
-
-  detach() {
-    for (const key of this.buffers.keys()) {
-      const [sessionID, agent] = key.split(":")
-      if (sessionID && agent) {
-        this.flushTurn({ sessionID, agent })
-      }
-    }
-  }
-
-  private onReasoning(event: Extract<RuntimeEvent, { type: "reasoning" }>) {
-    const buffer = this.getBuffer(event)
-    buffer.reasoning += event.textDelta
-
-    if (this.options.outputMode === "stream") {
-      if (!buffer.streamingReasoning) {
-        this.closeAnswerStream(buffer)
-        process.stdout.write(`[reasoning:${event.agent}] `)
-        buffer.streamingReasoning = true
-      }
-      process.stdout.write(event.textDelta)
-    }
-  }
-
-  private onText(event: Extract<RuntimeEvent, { type: "text" }>) {
-    const buffer = this.getBuffer(event)
-    buffer.answer += event.textDelta
-
-    if (this.options.outputMode === "stream") {
-      this.closeReasoningStream(buffer)
-      if (!buffer.streamingAnswer) {
-        process.stdout.write(`[final:${event.agent}] `)
-        buffer.streamingAnswer = true
-      }
-      process.stdout.write(event.textDelta)
-    }
-  }
-
-  private flushTurn(event: { sessionID: string; agent: string }) {
-    const key = turnKey(event)
-    const buffer = this.buffers.get(key)
-    if (!buffer) return
-
-    this.closeReasoningStream(buffer)
-    this.closeAnswerStream(buffer)
-
-    if (this.options.outputMode === "buffered") {
-      if (buffer.reasoning.trim()) {
-        console.log(`[reasoning:${event.agent}] ${buffer.reasoning.trim()}`)
-      }
-      if (buffer.answer.trim()) {
-        console.log(`[final:${event.agent}] ${buffer.answer.trim()}`)
-      }
+    if (event.type === "reasoning") {
+      const output = this.getOutput(event)
+      output.reasoning += event.textDelta
+      this.renderer.onReasoning(event, output)
+      return
     }
 
-    this.buffers.delete(key)
-  }
+    if (event.type === "text") {
+      const output = this.getOutput(event)
+      output.answer += event.textDelta
+      this.renderer.onText(event, output)
+      return
+    }
 
-  private printEvent(event: RuntimeEvent) {
+    if ("agent" in event) {
+      this.flush(event)
+    }
+
     const line = eventLine(event)
     if (line) console.log(line)
   }
 
-  private getBuffer(event: { sessionID: string; agent: string }) {
-    const key = turnKey(event)
-    const existing = this.buffers.get(key)
+  detach() {
+    this.renderer.detach(this.outputs)
+    this.outputs.clear()
+  }
+
+  private flush(event: TurnKey) {
+    const turnID = toTurnID(event)
+    const output = this.outputs.get(turnID)
+    if (!output) return
+    this.renderer.flush(event, output)
+    this.outputs.delete(turnID)
+  }
+
+  private getOutput(key: TurnKey) {
+    const turnID = toTurnID(key)
+    const existing = this.outputs.get(turnID)
     if (existing) return existing
-    const created = createBuffer()
-    this.buffers.set(key, created)
+    const created: TurnOutput = {
+      reasoning: "",
+      answer: "",
+    }
+    this.outputs.set(turnID, created)
     return created
-  }
-
-  private closeReasoningStream(buffer: TurnBuffer) {
-    if (!buffer.streamingReasoning) return
-    process.stdout.write("\n")
-    buffer.streamingReasoning = false
-  }
-
-  private closeAnswerStream(buffer: TurnBuffer) {
-    if (!buffer.streamingAnswer) return
-    process.stdout.write("\n")
-    buffer.streamingAnswer = false
   }
 }
 
 export function attachConsoleLogger(options: RendererOptions) {
-  const renderer = new ConsoleRenderer(options)
-  const unsubscribe = RuntimeEvents.subscribe(renderer.handle)
+  const logger = new ConsoleLogger(options)
+  const unsubscribe = RuntimeEvents.subscribe(logger.handle)
   return () => {
     unsubscribe()
-    renderer.detach()
+    logger.detach()
   }
 }
