@@ -1,0 +1,18 @@
+{
+  "name": "opencode-agentic-loop-core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "npm run build && node dist/index.js",
+    "check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@ai-sdk/openai": "^1.3.22",
+    "ai": "^4.3.16"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.2"
+  }
+}

@@ -1,0 +1,152 @@
+import { spawn } from "node:child_process"
+import path from "node:path"
+import type { ToolDefinition } from "../types.js"
+
+type BashArgs = {
+  command: string
+  workdir?: string
+  timeout?: number
+  description?: string
+}
+
+export const BashTool: ToolDefinition = {
+  id: "bash",
+  description: "Run a shell command in the local workspace and return stdout, stderr, and exit status.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      command: { type: "string" },
+      workdir: { type: "string" },
+      timeout: { type: "number" },
+      description: { type: "string" },
+    },
+    required: ["command"],
+    additionalProperties: false,
+  },
+  async execute(args: BashArgs, ctx) {
+    const workdir = args.workdir ? path.resolve(process.cwd(), args.workdir) : process.cwd()
+    const timeout = args.timeout ?? 120000
+
+    await ctx.metadata({
+      title: args.description ?? `bash: ${args.command}`,
+      metadata: {
+        workdir,
+        timeout,
+      },
+    })
+
+    const result = await runCommand({
+      command: args.command,
+      workdir,
+      timeout,
+      abort: ctx.abort,
+    })
+
+    return {
+      title: args.description,
+      output: formatOutput(result),
+      metadata: {
+        exitCode: result.exitCode,
+        timedOut: result.timedOut,
+        workdir,
+      },
+    }
+  },
+}
+
+async function runCommand(input: {
+  command: string
+  workdir: string
+  timeout: number
+  abort: AbortSignal
+}) {
+  return await new Promise<{
+    stdout: string
+    stderr: string
+    exitCode: number | null
+    timedOut: boolean
+  }>((resolve, reject) => {
+    const child = spawn("/bin/bash", ["-lc", input.command], {
+      cwd: input.workdir,
+      env: process.env,
+      stdio: ["ignore", "pipe", "pipe"],
+    })
+
+    let stdout = ""
+    let stderr = ""
+    let settled = false
+    let timedOut = false
+
+    const cleanup = () => {
+      clearTimeout(timer)
+      input.abort.removeEventListener("abort", onAbort)
+    }
+
+    const finish = (payload: { stdout: string; stderr: string; exitCode: number | null; timedOut: boolean }) => {
+      if (settled) return
+      settled = true
+      cleanup()
+      resolve(payload)
+    }
+
+    const fail = (error: Error) => {
+      if (settled) return
+      settled = true
+      cleanup()
+      reject(error)
+    }
+
+    const onAbort = () => {
+      child.kill("SIGTERM")
+      fail(new Error("Bash command aborted"))
+    }
+
+    const timer = setTimeout(() => {
+      timedOut = true
+      child.kill("SIGTERM")
+    }, input.timeout)
+
+    input.abort.addEventListener("abort", onAbort, { once: true })
+
+    child.stdout.setEncoding("utf8")
+    child.stderr.setEncoding("utf8")
+
+    child.stdout.on("data", (chunk: string) => {
+      stdout += chunk
+    })
+
+    child.stderr.on("data", (chunk: string) => {
+      stderr += chunk
+    })
+
+    child.on("error", (error) => {
+      fail(error)
+    })
+
+    child.on("close", (exitCode) => {
+      finish({ stdout, stderr, exitCode, timedOut })
+    })
+  })
+}
+
+function formatOutput(result: { stdout: string; stderr: string; exitCode: number | null; timedOut: boolean }) {
+  const sections = [`exitCode: ${result.exitCode ?? "null"}`]
+
+  if (result.timedOut) {
+    sections.push("timedOut: true")
+  }
+
+  if (result.stdout.trim()) {
+    sections.push(`stdout:\n${result.stdout.trimEnd()}`)
+  }
+
+  if (result.stderr.trim()) {
+    sections.push(`stderr:\n${result.stderr.trimEnd()}`)
+  }
+
+  if (!result.stdout.trim() && !result.stderr.trim()) {
+    sections.push("output: <empty>")
+  }
+
+  return sections.join("\n\n")
+}
