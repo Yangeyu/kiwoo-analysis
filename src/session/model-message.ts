@@ -1,0 +1,158 @@
+import type { ModelContentBlock, ModelMessage } from "@/llm/types"
+import type { AssistantMessage, CompactionPart, MessagePart, SessionInfo, TextPart, ToolPart, UserMessage } from "@/types"
+
+export function toModelMessages(session: SessionInfo): ModelMessage[] {
+  const messages: ModelMessage[] = []
+
+  for (let index = 0; index < session.messages.length; index += 1) {
+    const message = session.messages[index]
+    const parts = session.parts[message.id] || []
+
+    if (message.role === "user") {
+      messages.push(...buildCompactionMessages(parts))
+      const userMessage = buildUserMessage(message, parts, index)
+      if (userMessage) messages.push(userMessage)
+      continue
+    }
+
+    messages.push(...buildAssistantMessages(message, parts))
+  }
+
+  return messages
+}
+
+export function serializeAssistantMessage(message: AssistantMessage, parts: MessagePart[]) {
+  return buildAssistantMessages(message, parts)
+    .map((item) => serializeModelMessage(item))
+    .filter(Boolean)
+    .join("\n\n")
+}
+
+function buildUserMessage(message: UserMessage, parts: MessagePart[], index: number): ModelMessage | undefined {
+  const textParts = parts.filter((part): part is TextPart => part.type === "text")
+  const content: ModelContentBlock[] = []
+
+  if (index > 0) {
+    content.push({
+      type: "text",
+      text: "Continue the current task using the latest user message below.",
+      synthetic: true,
+    })
+  }
+
+  content.push(...textParts.map((part) => ({ type: "text" as const, text: part.text, synthetic: part.synthetic })))
+  if (content.length === 0) return undefined
+
+  return {
+    role: "user",
+    content,
+  }
+}
+
+function buildCompactionMessages(parts: MessagePart[]): ModelMessage[] {
+  return parts
+    .filter((part): part is CompactionPart => part.type === "compaction")
+    .map((part) => ({
+      role: "system" as const,
+      content: [{ type: "context-summary" as const, text: part.summary.trim() }],
+    }))
+    .filter((message) => message.content[0]?.type === "context-summary" && message.content[0].text)
+}
+
+function buildAssistantMessages(message: AssistantMessage, parts: MessagePart[]): ModelMessage[] {
+  const results: ModelMessage[] = []
+  const content = buildAssistantContent(message, parts)
+  if (content.length > 0) {
+    results.push({
+      role: "assistant",
+      content,
+    })
+  }
+
+  for (const part of parts) {
+    if (part.type !== "tool") continue
+    const toolMessage = toToolResultMessage(part)
+    if (toolMessage) results.push(toolMessage)
+  }
+
+  return results
+}
+
+function buildAssistantContent(message: AssistantMessage, parts: MessagePart[]): ModelContentBlock[] {
+  const content: ModelContentBlock[] = []
+
+  for (const part of parts) {
+    if (part.type === "text" && part.text) {
+      content.push({ type: "text", text: part.text, synthetic: part.synthetic })
+      continue
+    }
+
+    if (part.type === "reasoning" && part.text.trim()) {
+      content.push({ type: "reasoning", text: part.text.trim() })
+    }
+  }
+
+  if (message.structured !== undefined) {
+    content.push({ type: "structured-output", data: message.structured })
+  }
+
+  if (message.error) {
+    content.push({ type: "error", text: message.error })
+  }
+
+  return content
+}
+
+function toToolResultMessage(part: ToolPart): ModelMessage | undefined {
+  if (part.state.status !== "completed") return undefined
+  return {
+    role: "tool",
+    toolCallId: part.callID,
+    toolName: part.tool,
+    input: part.state.input,
+    content: [
+      {
+        type: "tool-output",
+        output: part.state.output,
+        title: part.state.title,
+        metadata: part.state.metadata,
+      },
+    ],
+  }
+}
+
+function serializeModelMessage(message: ModelMessage) {
+  if (message.role === "tool") {
+    return message.content.map(serializeBlock).filter(Boolean).join("\n")
+  }
+
+  return message.content.map(serializeBlock).filter(Boolean).join("\n")
+}
+
+function serializeBlock(block: ModelContentBlock) {
+  if (block.type === "text") return block.text
+  if (block.type === "reasoning") return ["<reasoning>", block.text, "</reasoning>"].join("\n")
+  if (block.type === "structured-output") {
+    return [
+      "<structured-output>",
+      typeof block.data === "string" ? block.data : JSON.stringify(block.data),
+      "</structured-output>",
+    ].join("\n")
+  }
+  if (block.type === "context-summary") return ["<context-summary>", block.text, "</context-summary>"].join("\n")
+  if (block.type === "tool-output") {
+    return [
+      block.title ? `<title>${block.title}</title>` : "",
+      block.metadata !== undefined ? `<metadata>${serializeUnknown(block.metadata)}</metadata>` : "",
+      `<output>${block.output}</output>`,
+    ]
+      .filter(Boolean)
+      .join("\n")
+  }
+  return `error: ${block.text}`
+}
+
+function serializeUnknown(value: unknown) {
+  if (typeof value === "string") return value
+  return JSON.stringify(value)
+}

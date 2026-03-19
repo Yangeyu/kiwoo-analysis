@@ -1,9 +1,9 @@
-import type { AgentInfo, ToolDefinition } from "@/types"
+import type { AgentInfo, AnyToolDefinition, ToolDefinition } from "@/types"
 
 export const ToolRegistry = {
-  tools: new Map<string, ToolDefinition>(),
+  tools: new Map<string, AnyToolDefinition>(),
 
-  register(tool: ToolDefinition) {
+  register(tool: AnyToolDefinition) {
     this.tools.set(tool.id, tool)
   },
 
@@ -11,6 +11,10 @@ export const ToolRegistry = {
     const tool = this.tools.get(id)
     if (!tool) throw new Error(`Unknown tool: ${id}`)
     return tool
+  },
+
+  getTyped<TArgs>(id: string): ToolDefinition<TArgs> {
+    return this.get(id) as ToolDefinition<TArgs>
   },
 
   async toolsForAgent(agent: AgentInfo) {

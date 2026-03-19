@@ -1,3 +1,5 @@
+import type { z } from "zod"
+
 export type Role = "user" | "assistant"
 
 export type FinishReason = "stop" | "tool-calls" | "length" | "error"
@@ -32,12 +34,15 @@ export type ToolContext = {
   captureStructuredOutput(output: unknown): Promise<void>
 }
 
-export type ToolDefinition = {
+export type ToolDefinition<TArgs = unknown> = {
   id: string
   description: string
-  inputSchema?: Record<string, unknown>
-  execute(args: any, ctx: ToolContext): Promise<ToolExecuteResult>
+  parameters: z.ZodType<TArgs>
+  jsonSchema?: Record<string, unknown>
+  execute(args: TArgs, ctx: ToolContext): Promise<ToolExecuteResult>
 }
+
+export type AnyToolDefinition = ToolDefinition<unknown>
 
 export type UserMessage = {
   id: string
@@ -45,7 +50,6 @@ export type UserMessage = {
   sessionID: string
   agent: string
   model: ProviderModel
-  text: string
   format?:
     | {
         type: "text"
@@ -63,10 +67,16 @@ export type AssistantMessage = {
   parentID: string
   agent: string
   model: ProviderModel
-  text?: string
   finish?: FinishReason
   error?: string
   structured?: unknown
+}
+
+export type TextPart = {
+  id: string
+  type: "text"
+  text: string
+  synthetic?: boolean
 }
 
 export type ReasoningPart = {
@@ -90,20 +100,26 @@ export type ToolPart = {
     | {
         status: "pending" | "running"
         input: unknown
+        title?: string
+        metadata?: unknown
       }
     | {
         status: "completed"
         input: unknown
         output: string
+        title?: string
+        metadata?: unknown
       }
     | {
         status: "error"
         input: unknown
         error: string
+        title?: string
+        metadata?: unknown
       }
 }
 
-export type MessagePart = ReasoningPart | CompactionPart | ToolPart
+export type MessagePart = TextPart | ReasoningPart | CompactionPart | ToolPart
 
 export type SessionMessage = UserMessage | AssistantMessage
 

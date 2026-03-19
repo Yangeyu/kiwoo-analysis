@@ -1,10 +1,6 @@
 import { createID, type ToolDefinition } from "@/types"
-import type { LLMChunk, LLMInput, LLMStreamResult } from "@/llm/types"
-
-type QwenRequestMessage = {
-  role: "system" | "user" | "assistant"
-  content: string
-}
+import type { LLMChunk, LLMInput, LLMStreamResult, ModelContentBlock, ModelMessage } from "@/llm/types"
+import { zodToJsonSchema } from "zod-to-json-schema"
 
 type QwenToolDefinition = {
   type: "function"
@@ -51,6 +47,20 @@ type QwenMappedEvent =
   | { type: "text"; textDelta: string }
   | { type: "tool-delta"; toolCall: QwenDeltaToolCall }
   | { type: "finish"; finishReason: string }
+
+type QwenRequestMessage = {
+  role: "system" | "user" | "assistant" | "tool"
+  content: string
+  tool_call_id?: string
+  tool_calls?: Array<{
+    id: string
+    type: "function"
+    function: {
+      name: string
+      arguments: string
+    }
+  }>
+}
 
 export function qwenStream(input: LLMInput): LLMStreamResult {
   const apiKey = process.env.DASHSCOPE_API_KEY ?? process.env.QWEN_API_KEY
@@ -232,22 +242,89 @@ function getBaseURL() {
 }
 
 function buildMessages(input: LLMInput): QwenRequestMessage[] {
-  return [
+  const messages: QwenRequestMessage[] = [
     ...input.system.filter(Boolean).map((content) => ({ role: "system" as const, content })),
-    ...input.session.messages.map((message) => {
-      if (message.role === "user") {
-        return {
-          role: "user" as const,
-          content: message.text,
-        }
-      }
-
-      return {
-        role: "assistant" as const,
-        content: message.text ?? (message.structured ? JSON.stringify(message.structured) : ""),
-      }
-    }),
   ]
+
+  for (const message of input.messages) {
+    if (message.role === "tool") {
+      messages.push({
+        role: "assistant",
+        content: "",
+        tool_calls: [
+          {
+            id: message.toolCallId,
+            type: "function",
+            function: {
+              name: message.toolName,
+              arguments: serializeToolInput(message.input),
+            },
+          },
+        ],
+      })
+      messages.push(mapModelMessage(message))
+      continue
+    }
+
+    messages.push(mapModelMessage(message))
+  }
+
+  return messages
+}
+
+function mapModelMessage(message: ModelMessage): QwenRequestMessage {
+  if (message.role === "tool") {
+    return {
+      role: "tool",
+      content: serializeBlocks(message.content),
+      tool_call_id: message.toolCallId,
+    }
+  }
+
+  return {
+    role: message.role,
+    content: serializeBlocks(message.content),
+  }
+}
+
+function serializeToolInput(input: unknown) {
+  if (typeof input === "string") return input
+  return JSON.stringify(input ?? {})
+}
+
+function serializeBlocks(blocks: ModelContentBlock[]) {
+  return blocks
+    .map((block) => serializeBlock(block))
+    .filter(Boolean)
+    .join("\n\n")
+}
+
+function serializeBlock(block: ModelContentBlock) {
+  if (block.type === "text") return block.text
+  if (block.type === "reasoning") return ["<reasoning>", block.text, "</reasoning>"].join("\n")
+  if (block.type === "structured-output") {
+    return [
+      "<structured-output>",
+      typeof block.data === "string" ? block.data : JSON.stringify(block.data),
+      "</structured-output>",
+    ].join("\n")
+  }
+  if (block.type === "context-summary") return ["<context-summary>", block.text, "</context-summary>"].join("\n")
+  if (block.type === "tool-output") {
+    return [
+      block.title ? `<title>${block.title}</title>` : "",
+      block.metadata !== undefined ? `<metadata>${serializeUnknown(block.metadata)}</metadata>` : "",
+      `<output>${block.output}</output>`,
+    ]
+      .filter(Boolean)
+      .join("\n")
+  }
+  return `error: ${block.text}`
+}
+
+function serializeUnknown(value: unknown) {
+  if (typeof value === "string") return value
+  return JSON.stringify(value)
 }
 
 function buildTools(tools: ToolDefinition[]): QwenToolDefinition[] {
@@ -256,11 +333,7 @@ function buildTools(tools: ToolDefinition[]): QwenToolDefinition[] {
     function: {
       name: item.id,
       description: item.description,
-      parameters: item.inputSchema ?? {
-        type: "object",
-        properties: {},
-        additionalProperties: true,
-      },
+      parameters: item.jsonSchema ?? zodToJsonSchema(item.parameters, { $refStrategy: "none" }),
     },
   }))
 }

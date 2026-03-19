@@ -1,19 +1,25 @@
 import fs from "node:fs/promises"
 import path from "node:path"
 import type { ToolDefinition } from "@/types"
+import { z } from "zod"
 
-export const ReadTool: ToolDefinition = {
+export const ReadParameters = z.object({
+  filePath: z.string().trim().min(1),
+})
+
+export type ReadArgs = z.infer<typeof ReadParameters>
+
+export const GrepParameters = z.object({
+  pattern: z.string().trim().min(1),
+})
+
+export type GrepArgs = z.infer<typeof GrepParameters>
+
+export const ReadTool: ToolDefinition<ReadArgs> = {
   id: "read",
   description: "Read a file",
-  inputSchema: {
-    type: "object",
-    properties: {
-      filePath: { type: "string" },
-    },
-    required: ["filePath"],
-    additionalProperties: false,
-  },
-  async execute(args: { filePath: string }) {
+  parameters: ReadParameters,
+  async execute(args) {
     const target = path.resolve(process.cwd(), args.filePath)
     const content = await fs.readFile(target, "utf8")
     return {
@@ -22,18 +28,11 @@ export const ReadTool: ToolDefinition = {
   },
 }
 
-export const GrepTool: ToolDefinition = {
+export const GrepTool: ToolDefinition<GrepArgs> = {
   id: "grep",
   description: "Search code",
-  inputSchema: {
-    type: "object",
-    properties: {
-      pattern: { type: "string" },
-    },
-    required: ["pattern"],
-    additionalProperties: false,
-  },
-  async execute(args: { pattern: string }) {
+  parameters: GrepParameters,
+  async execute(args) {
     const root = path.resolve(process.cwd(), "src")
     const entries = await fs.readdir(root, { recursive: true, withFileTypes: true })
     const matches: string[] = []

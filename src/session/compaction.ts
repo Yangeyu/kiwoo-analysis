@@ -15,33 +15,46 @@ export namespace SessionCompaction {
     const priorMessages = input.session.messages.filter((message) => message.id !== input.latestUser.id)
     const summary = priorMessages
       .map((message) => {
-        if (message.role === "user") return `user: ${message.text}`
-        return `assistant: ${message.text ?? message.finish ?? ""}`
+        const text = SessionStore.getMessageText(input.session.id, message.id, { includeSynthetic: false }).trim()
+        if (message.role === "user") return `user: ${text}`
+        return `assistant: ${text || (message.finish ?? "")}`
       })
       .slice(-6)
       .join("\n")
 
-    SessionStore.addPart(input.session.id, input.trigger.id, {
+    const compactionPart = {
       id: createID(),
       type: "compaction",
       summary,
-    })
+    } as const
+
     RuntimeEvents.emit({
       type: "compaction",
       sessionID: input.session.id,
       summary,
     })
 
-    input.session.messages = [
-      {
-        id: createID(),
-        role: "user",
-        sessionID: input.session.id,
-        agent: input.latestUser.agent,
-        model: input.latestUser.model,
-        text: `<compaction_summary>\n${summary}\n</compaction_summary>`,
-      },
-      input.latestUser,
-    ]
+    SessionStore.replaceState({
+      sessionID: input.session.id,
+      messages: [input.latestUser],
+      parts: buildCompactedParts(input.session, compactionPart, input.latestUser.id),
+    })
   }
+}
+
+function buildCompactedParts(
+  session: SessionInfo,
+  compactionPart: { id: string; type: "compaction"; summary: string },
+  latestUserID: string,
+) {
+  const nextParts: Record<string, SessionInfo["parts"][string]> = {
+    [latestUserID]: [compactionPart],
+  }
+
+  const latestUserParts = session.parts[latestUserID]
+  if (latestUserParts?.length) {
+    nextParts[latestUserID] = [compactionPart, ...latestUserParts]
+  }
+
+  return nextParts
 }

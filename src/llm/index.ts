@@ -2,7 +2,7 @@ import { fakeStream } from "@/llm/fake"
 import { qwenStream } from "@/llm/qwen"
 import type { LLMInput, LLMStreamResult } from "@/llm/types"
 
-export type { LLMChunk, LLMInput, LLMStreamResult } from "@/llm/types"
+export type { LLMChunk, LLMInput, LLMStreamResult, ModelMessage } from "@/llm/types"
 
 export namespace LLM {
   export function stream(input: LLMInput): LLMStreamResult {

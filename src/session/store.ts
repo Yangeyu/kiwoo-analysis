@@ -5,6 +5,7 @@ import {
   type ReasoningPart,
   type SessionInfo,
   type SessionMessage,
+  type TextPart,
   type ToolPart,
   type UserMessage,
 } from "@/types"
@@ -66,6 +67,10 @@ export const SessionStore = {
     return this.addPart(sessionID, messageID, part) as ReasoningPart
   },
 
+  appendTextPart(sessionID: string, messageID: string, part: TextPart) {
+    return this.addPart(sessionID, messageID, part) as TextPart
+  },
+
   startToolPart(sessionID: string, messageID: string, part: ToolPart) {
     return this.addPart(sessionID, messageID, part) as ToolPart
   },
@@ -86,7 +91,25 @@ export const SessionStore = {
     return this.get(sessionID).parts[messageID] || []
   },
 
-  appendToolResultMessage(sessionID: string, message: UserMessage) {
-    return this.addMessage(sessionID, message)
+  getTextParts(sessionID: string, messageID: string) {
+    return this.getParts(sessionID, messageID).filter((part): part is TextPart => part.type === "text")
+  },
+
+  getMessageText(sessionID: string, messageID: string, options?: { includeSynthetic?: boolean }) {
+    return this.getTextParts(sessionID, messageID)
+      .filter((part) => options?.includeSynthetic !== false || part.synthetic !== true)
+      .map((part) => part.text)
+      .join("")
+  },
+
+  replaceState(input: {
+    sessionID: string
+    messages: SessionMessage[]
+    parts: Record<string, MessagePart[]>
+  }) {
+    const session = this.get(input.sessionID)
+    session.messages = input.messages
+    session.parts = input.parts
+    return session
   },
 }

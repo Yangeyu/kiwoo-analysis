@@ -4,12 +4,14 @@ import type { LLMChunk, LLMInput, LLMStreamResult } from "@/llm/types"
 export function fakeStream(input: LLMInput): LLMStreamResult {
   return {
     fullStream: (async function* (): AsyncGenerator<LLMChunk> {
+      const userText = latestUserText(input)
+
       yield {
         type: "reasoning",
         textDelta: `Inspecting request for ${input.agent.name}. `,
       }
 
-      if (input.user.text.includes("@general")) {
+      if (userText.includes("@general")) {
         yield {
           type: "reasoning",
           textDelta: "Delegating to a subagent via task. ",
@@ -20,7 +22,7 @@ export function fakeStream(input: LLMInput): LLMStreamResult {
           toolName: "task",
           args: {
             description: "Investigate request",
-            prompt: input.user.text.replace("@general", "").trim(),
+            prompt: userText.replace("@general", "").trim(),
             subagent_type: "general",
           },
         }
@@ -28,7 +30,7 @@ export function fakeStream(input: LLMInput): LLMStreamResult {
         return
       }
 
-      if (input.user.text.includes("parallel")) {
+      if (userText.includes("parallel")) {
         yield {
           type: "reasoning",
           textDelta: "Parallelizing independent tool calls with batch. ",
@@ -56,22 +58,22 @@ export function fakeStream(input: LLMInput): LLMStreamResult {
         yield {
           type: "tool-call",
           toolCallId: createID(),
-          toolName: "StructuredOutput",
-          args: {
-            agent: input.agent.name,
-            answer: `Structured response for: ${input.user.text}`,
-            sessionMessages: input.session.messages.length,
-          },
-        }
+            toolName: "StructuredOutput",
+            args: {
+              agent: input.agent.name,
+              answer: `Structured response for: ${userText}`,
+              sessionMessages: input.session.messages.length,
+            },
+          }
         yield { type: "finish", finishReason: "tool-calls" }
         return
       }
 
-      const alreadyCompacted = input.session.messages.some(
-        (message) => message.role === "user" && message.text.includes("<compaction_summary>"),
+      const alreadyCompacted = Object.values(input.session.parts).some((parts) =>
+        parts.some((part) => part.type === "compaction"),
       )
 
-      if ((input.user.text.includes("overflow") && !alreadyCompacted) || input.session.messages.length >= 8) {
+      if ((userText.includes("overflow") && !alreadyCompacted) || input.session.messages.length >= 8) {
         yield {
           type: "reasoning",
           textDelta: "Context is getting large; requesting compaction. ",
@@ -86,9 +88,22 @@ export function fakeStream(input: LLMInput): LLMStreamResult {
       }
       yield {
         type: "text-delta",
-        textDelta: `Handled by ${input.agent.name}: ${input.user.text}`,
+        textDelta: `Handled by ${input.agent.name}: ${userText}`,
       }
       yield { type: "finish", finishReason: "stop" }
     })(),
   }
+}
+
+function latestUserText(input: LLMInput) {
+  for (let index = input.messages.length - 1; index >= 0; index -= 1) {
+    const message = input.messages[index]
+    if (message.role !== "user") continue
+    return message.content
+      .filter((block) => block.type === "text")
+      .map((block) => block.text)
+      .join("\n")
+  }
+
+  return ""
 }

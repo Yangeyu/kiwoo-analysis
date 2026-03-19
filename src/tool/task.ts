@@ -1,34 +1,41 @@
 import { AgentRegistry } from "@/agent/registry"
+import { serializeAssistantMessage } from "@/session/model-message"
 import { SessionPrompt } from "@/session/prompt"
 import { SessionStore } from "@/session/store"
 import type { AssistantMessage, ToolDefinition } from "@/types"
+import { z } from "zod"
 
-export const TaskTool: ToolDefinition = {
+export const TaskParameters = z
+  .object({
+    description: z.string().trim().min(3).max(120),
+    prompt: z.string().trim().min(1),
+    subagent_type: z.string().trim().min(1),
+    task_id: z.string().trim().min(1).optional(),
+  })
+  .superRefine((value, issue) => {
+    if (!AgentRegistry.agents.has(value.subagent_type)) {
+      issue.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `Unknown agent type: ${value.subagent_type}`,
+        path: ["subagent_type"],
+      })
+    }
+  })
+
+export type TaskArgs = z.infer<typeof TaskParameters>
+
+export const TaskTool: ToolDefinition<TaskArgs> = {
   id: "task",
   description: "Run a subagent in a child session",
-  inputSchema: {
-    type: "object",
-    properties: {
-      description: { type: "string" },
-      prompt: { type: "string" },
-      subagent_type: { type: "string" },
-      task_id: { type: "string" },
-    },
-    required: ["description", "prompt", "subagent_type"],
-    additionalProperties: false,
-  },
-  async execute(args: {
-    description: string
-    prompt: string
-    subagent_type: string
-    task_id?: string
-  }) {
+  parameters: TaskParameters,
+  async execute(args, ctx) {
     const agent = AgentRegistry.get(args.subagent_type)
 
     const child =
       args.task_id && SessionStore.sessions.has(args.task_id)
         ? SessionStore.get(args.task_id)
         : SessionStore.create({
+            parentID: ctx.sessionID,
             title: `${args.description} (@${agent.name} subagent)`,
           })
 
@@ -41,14 +48,18 @@ export const TaskTool: ToolDefinition = {
     const lastAssistant = [...child.messages].reverse().find((message) => message.role === "assistant") as
       | AssistantMessage
       | undefined
+    const serializedResult = lastAssistant
+      ? serializeAssistantMessage(lastAssistant, SessionStore.getParts(child.id, lastAssistant.id))
+      : ""
 
     return {
       title: args.description,
       output: [
         `task_id: ${child.id}`,
+        `agent: ${agent.name}`,
         "",
         "<task_result>",
-        lastAssistant?.text ?? "",
+        serializedResult,
         "</task_result>",
       ].join("\n"),
       metadata: {

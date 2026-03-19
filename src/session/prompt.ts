@@ -1,10 +1,15 @@
 import { AgentRegistry } from "@/agent/registry"
 import { RuntimeEvents } from "@/runtime/events"
+import { toModelMessages } from "@/session/model-message"
 import { SessionCompaction } from "@/session/compaction"
 import { SessionProcessor } from "@/session/processor"
 import { SessionStore } from "@/session/store"
+import { buildSystemPrompt } from "@/session/system"
 import { ToolRegistry } from "@/tool/registry"
 import { createID, type AgentInfo, type AssistantMessage, type ProviderModel, type ToolDefinition, type UserMessage } from "@/types"
+import { z } from "zod"
+
+const StructuredOutputParameters = z.unknown()
 
 type PromptInput = {
   sessionID: string
@@ -36,13 +41,17 @@ export namespace SessionPrompt {
     const session = SessionStore.get(input.sessionID)
     const user = createUserMessage({
       sessionID: session.id,
-      text: input.text,
       agent: input.agent,
       model: input.model,
       format: input.format,
     })
 
     SessionStore.appendUserMessage(session.id, user)
+    SessionStore.appendTextPart(session.id, user.id, {
+      id: createID(),
+      type: "text",
+      text: input.text,
+    })
     emitSessionStart(session.id, user)
 
     return loop({ sessionID: session.id })
@@ -71,7 +80,6 @@ export namespace SessionPrompt {
 
 function createUserMessage(input: {
   sessionID: string
-  text: string
   agent?: string
   model?: ProviderModel
   format?: UserMessage["format"]
@@ -82,7 +90,6 @@ function createUserMessage(input: {
     sessionID: input.sessionID,
     agent: input.agent ?? "build",
     model: input.model ?? { providerID: "qwen", modelID: "qwen3.5-plus" },
-    text: input.text,
     format: input.format,
   }
 }
@@ -92,7 +99,7 @@ function emitSessionStart(sessionID: string, user: UserMessage) {
     type: "session-start",
     sessionID,
     agent: user.agent,
-    text: user.text,
+    text: SessionStore.getMessageText(sessionID, user.id),
   })
 }
 
@@ -122,12 +129,19 @@ async function prepareLoopState(context: LoopContext): Promise<LoopState> {
 
 async function runLoopStep(context: LoopContext, state: LoopState) {
   const session = SessionStore.get(context.sessionID)
+  const maxSteps = state.agent.steps ?? Number.POSITIVE_INFINITY
   return await SessionProcessor.process({
     session,
     user: state.user,
     assistant: state.assistant,
     agent: state.agent,
-    system: buildSystemPrompt(state.agent),
+    system: buildSystemPrompt({
+      agent: state.agent,
+      format: state.user.format,
+      step: context.step,
+      maxSteps,
+    }),
+    messages: toModelMessages(session),
     tools: state.tools,
     abort: context.abort.signal,
   })
@@ -151,9 +165,12 @@ function decideNextAction(context: LoopContext, state: LoopState, result: Awaite
   if (result === "continue") {
     const maxSteps = state.agent.steps ?? Number.POSITIVE_INFINITY
     if (context.step >= maxSteps) {
-      SessionStore.updateMessage(context.sessionID, state.assistant.id, {
-        finish: "stop",
-        text: `${state.assistant.text ?? ""}\n\n[Stopped: max steps reached]`,
+      SessionStore.updateMessage(context.sessionID, state.assistant.id, { finish: "stop" })
+      SessionStore.appendTextPart(context.sessionID, state.assistant.id, {
+        id: createID(),
+        type: "text",
+        text: "\n\n[Stopped: max steps reached]",
+        synthetic: true,
       })
       return { kind: "break" }
     }
@@ -180,11 +197,6 @@ function createAssistantMessage(sessionID: string, user: UserMessage, agent: Age
     model: user.model,
   }
 }
-
-function buildSystemPrompt(agent: AgentInfo) {
-  return [`You are ${agent.name}`]
-}
-
 async function resolveToolsForTurn(agent: AgentInfo, format: UserMessage["format"]) {
   const tools = [...(await ToolRegistry.toolsForAgent(agent))]
 
@@ -195,11 +207,12 @@ async function resolveToolsForTurn(agent: AgentInfo, format: UserMessage["format
   return tools
 }
 
-function createStructuredOutputTool(schema: Record<string, unknown>): ToolDefinition {
+function createStructuredOutputTool(schema: Record<string, unknown>): ToolDefinition<unknown> {
   return {
     id: "StructuredOutput",
     description: "Return the final response in the requested structured format.",
-    inputSchema: schema,
+    parameters: StructuredOutputParameters,
+    jsonSchema: schema,
     async execute(args, ctx) {
       void schema
       await ctx.captureStructuredOutput(args)
