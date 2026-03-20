@@ -26,9 +26,16 @@ type ProcessorInput = {
 }
 
 type ProcessorContext = ProcessorInput & {
+  startedAt: number
+  phase: TurnPhase
+  toolCalls: number
+  sawReasoning: boolean
+  sawText: boolean
   reasoningPart?: ReasoningPart
   textPart?: TextPart
 }
+
+type TurnPhase = "starting" | "streaming" | "reasoning" | "responding" | "executing-tool" | "finishing"
 
 type ProcessorAction =
   | { kind: "append-reasoning", textDelta: string }
@@ -42,24 +49,44 @@ type ToolExecutionResult =
 
 export namespace SessionProcessor {
   export async function process(input: ProcessorInput): Promise<ProcessorResult> {
-    const context: ProcessorContext = { ...input }
+    const context: ProcessorContext = {
+      ...input,
+      startedAt: Date.now(),
+      phase: "starting",
+      toolCalls: 0,
+      sawReasoning: false,
+      sawText: false,
+    }
     let sawToolCall = false
+
+    emitTurnStart(context)
 
     const result = LLM.stream(input)
 
-    for await (const chunk of result.fullStream) {
-      input.abort.throwIfAborted()
+    transitionTurn(context, "streaming")
 
-      if (chunk.type === "tool-call") {
-        sawToolCall = true
-        const toolResult = await executeToolCall(context, chunk)
-        if (toolResult.kind === "stop") return "stop"
-        continue
+    try {
+      for await (const chunk of result.fullStream) {
+        input.abort.throwIfAborted()
+
+        if (chunk.type === "tool-call") {
+          sawToolCall = true
+          const toolResult = await executeToolCall(context, chunk)
+          if (toolResult.kind === "stop") return "stop"
+          transitionTurn(context, "streaming")
+          continue
+        }
+
+        const actions = interpretChunk(chunk)
+        const applyResult = applyActions(context, actions)
+        if (applyResult === "stop") return "stop"
       }
-
-      const actions = interpretChunk(chunk)
-      const applyResult = applyActions(context, actions)
-      if (applyResult === "stop") return "stop"
+    } catch (error) {
+      if (isAbortError(error)) {
+        abortAssistant(context)
+        return "stop"
+      }
+      throw error
     }
 
     if (input.assistant.finish === "length") return "compact"
@@ -127,6 +154,11 @@ function applyActions(context: ProcessorContext, actions: ProcessorAction[]): Pr
 }
 
 function appendReasoning(context: ProcessorContext, textDelta: string) {
+  if (!context.sawReasoning) {
+    context.sawReasoning = true
+    transitionTurn(context, "reasoning")
+  }
+
   RuntimeEvents.emit({
     type: "reasoning",
     sessionID: context.session.id,
@@ -152,6 +184,11 @@ function appendReasoning(context: ProcessorContext, textDelta: string) {
 }
 
 function appendText(context: ProcessorContext, textDelta: string) {
+  if (!context.sawText) {
+    context.sawText = true
+    transitionTurn(context, "responding")
+  }
+
   RuntimeEvents.emit({
     type: "text",
     sessionID: context.session.id,
@@ -176,6 +213,7 @@ function appendText(context: ProcessorContext, textDelta: string) {
 }
 
 function finishAssistant(context: ProcessorContext, finishReason: AssistantMessage["finish"]) {
+  transitionTurn(context, "finishing")
   context.assistant = SessionStore.updateMessage(context.session.id, context.assistant.id, {
     finish: finishReason,
   })
@@ -185,9 +223,19 @@ function finishAssistant(context: ProcessorContext, finishReason: AssistantMessa
     agent: context.agent.name,
     finishReason: finishReason ?? "stop",
   })
+  RuntimeEvents.emit({
+    type: "turn-complete",
+    sessionID: context.session.id,
+    agent: context.agent.name,
+    messageID: context.assistant.id,
+    finishReason: finishReason ?? "stop",
+    durationMs: Date.now() - context.startedAt,
+    toolCalls: context.toolCalls,
+  })
 }
 
 function failAssistant(context: ProcessorContext, message: string) {
+  transitionTurn(context, "finishing")
   context.assistant = SessionStore.updateMessage(context.session.id, context.assistant.id, {
     error: message,
     finish: "error",
@@ -198,18 +246,36 @@ function failAssistant(context: ProcessorContext, message: string) {
     agent: context.agent.name,
     error: message,
   })
+  RuntimeEvents.emit({
+    type: "turn-complete",
+    sessionID: context.session.id,
+    agent: context.agent.name,
+    messageID: context.assistant.id,
+    finishReason: "error",
+    durationMs: Date.now() - context.startedAt,
+    toolCalls: context.toolCalls,
+  })
 }
 
 async function executeToolCall(
   context: ProcessorContext,
   chunk: Extract<LLMChunk, { type: "tool-call" }>,
 ): Promise<ToolExecutionResult> {
+  context.toolCalls += 1
+  transitionTurn(context, "executing-tool")
+
   RuntimeEvents.emit({
     type: "tool-call",
     sessionID: context.session.id,
     agent: context.agent.name,
     tool: chunk.toolName,
     args: chunk.args,
+  })
+  RuntimeEvents.emit({
+    type: "tool-start",
+    sessionID: context.session.id,
+    agent: context.agent.name,
+    tool: chunk.toolName,
   })
 
   context.reasoningPart = undefined
@@ -288,6 +354,27 @@ async function executeToolCall(
 
     return { kind: "continue" }
   } catch (error) {
+    if (isAbortError(error)) {
+      SessionStore.updatePart(context.session.id, context.assistant.id, part.id, {
+        state: {
+          status: "error",
+          input: validatedArgs,
+          error: "Aborted",
+          title: part.state.title,
+          metadata: part.state.metadata,
+        },
+      })
+      RuntimeEvents.emit({
+        type: "tool-error",
+        sessionID: context.session.id,
+        agent: context.agent.name,
+        tool: chunk.toolName,
+        error: "Aborted",
+      })
+      abortAssistant(context)
+      return { kind: "stop" }
+    }
+
     const message = error instanceof Error ? error.message : String(error)
     SessionStore.updatePart(context.session.id, context.assistant.id, part.id, {
       state: {
@@ -298,7 +385,61 @@ async function executeToolCall(
         metadata: part.state.metadata,
       },
     })
+    RuntimeEvents.emit({
+      type: "tool-error",
+      sessionID: context.session.id,
+      agent: context.agent.name,
+      tool: chunk.toolName,
+      error: message,
+    })
     failAssistant(context, message)
     return { kind: "stop" }
   }
+}
+
+function emitTurnStart(context: ProcessorContext) {
+  RuntimeEvents.emit({
+    type: "turn-start",
+    sessionID: context.session.id,
+    agent: context.agent.name,
+    messageID: context.assistant.id,
+    step: resolveTurnStep(context),
+  })
+}
+
+function transitionTurn(context: ProcessorContext, phase: TurnPhase) {
+  if (context.phase === phase) return
+  context.phase = phase
+  RuntimeEvents.emit({
+    type: "turn-phase",
+    sessionID: context.session.id,
+    agent: context.agent.name,
+    messageID: context.assistant.id,
+    phase,
+  })
+}
+
+function abortAssistant(context: ProcessorContext) {
+  context.assistant = SessionStore.updateMessage(context.session.id, context.assistant.id, {
+    error: "Aborted",
+    finish: "error",
+  })
+  RuntimeEvents.emit({
+    type: "turn-abort",
+    sessionID: context.session.id,
+    agent: context.agent.name,
+    messageID: context.assistant.id,
+    durationMs: Date.now() - context.startedAt,
+  })
+}
+
+function resolveTurnStep(context: ProcessorContext) {
+  const session = SessionStore.get(context.session.id)
+  return session.messages.filter((message) => message.role === "assistant").length
+}
+
+function isAbortError(error: unknown) {
+  return error instanceof DOMException
+    ? error.name === "AbortError"
+    : error instanceof Error && error.name === "AbortError"
 }

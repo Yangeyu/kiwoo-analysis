@@ -45,16 +45,28 @@ function eventLine(event: RuntimeEvent) {
       return `[session:${event.sessionID}] start agent=${event.agent} prompt=${preview(event.text)}`
     case "loop-step":
       return `[session:${event.sessionID}] step=${event.step} agent=${event.agent}`
+    case "turn-start":
+      return `[turn:${event.agent}] start step=${event.step} message=${event.messageID}`
+    case "turn-phase":
+      return `[turn:${event.agent}] phase=${event.phase}`
     case "tool-call":
       return `[tool-call:${event.agent}] ${event.tool} ${preview(event.args)}`
+    case "tool-start":
+      return `[tool-start:${event.agent}] ${event.tool}`
     case "tool-result":
       return `[tool-result:${event.agent}] ${event.tool} ${preview(event.output)}`
+    case "tool-error":
+      return `[tool-error:${event.agent}] ${event.tool} ${event.error}`
     case "structured-output":
       return `[structured:${event.agent}] ${preview(event.output)}`
     case "compaction":
       return `[compaction:${event.sessionID}] ${preview(event.summary)}`
     case "finish":
       return `[finish:${event.agent}] ${event.finishReason}`
+    case "turn-complete":
+      return `[turn:${event.agent}] complete reason=${event.finishReason} duration=${event.durationMs}ms tools=${event.toolCalls}`
+    case "turn-abort":
+      return `[turn:${event.agent}] aborted duration=${event.durationMs}ms`
     case "error":
       return `[error:${event.agent}] ${event.error}`
     case "reasoning":
