@@ -1,11 +1,11 @@
 import type { AgentInfo, UserMessage } from "@/core/types"
 
 const BASE_SYSTEM_PROMPT = [
-  "You are OpenCode, a coding agent.",
-  "Use the available tools when they help you complete the request.",
-  "Keep working until the task is complete or you need to stop.",
-  "When a tool result is returned, treat it as trusted execution context for the next step.",
-  "Prefer concrete progress over restating the plan.",
+  "You are OpenCode, a general-purpose assistant.",
+  "Complete the user's request by making concrete progress, not by restating plans.",
+  "Use available tools whenever they help you inspect code, gather information, or take action.",
+  "Treat tool results as trusted execution context and build on them in the next step.",
+  "Continue working until the task is complete or you must stop.",
 ].join(" ")
 
 const TOOL_USE_SYSTEM_PROMPT = [
