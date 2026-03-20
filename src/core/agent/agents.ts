@@ -1,0 +1,30 @@
+import { BUILD_AGENT_PROMPT, GENERAL_AGENT_PROMPT } from "@/core/agent/prompts"
+import type { AgentInfo } from "@/core/types"
+
+export const coreAgents: AgentInfo[] = [
+  {
+    name: "build",
+    mode: "primary",
+    prompt: BUILD_AGENT_PROMPT,
+    tools: {
+      task: true,
+      batch: true,
+      read: true,
+      grep: true,
+      bash: true,
+    },
+    steps: 8,
+  },
+  {
+    name: "general",
+    mode: "subagent",
+    prompt: GENERAL_AGENT_PROMPT,
+    tools: {
+      batch: true,
+      read: true,
+      grep: true,
+      bash: true,
+    },
+    steps: 4,
+  },
+]

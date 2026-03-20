@@ -1,9 +1,10 @@
-import { attachConsoleLogger, type OutputMode } from "@/runtime/logger"
-import { bootstrapRuntime, runPrompt } from "@/runtime/bootstrap"
+import { AgentRegistry } from "@/core/agent"
+import { attachConsoleLogger, type OutputMode } from "@/core/runtime/logger"
+import { bootstrapRuntime, runPrompt } from "@/core/runtime/bootstrap"
 
 function parseArgs(argv: string[]) {
   const args = [...argv]
-  let agent = "build"
+  let agent: string | undefined
   let json = false
   let outputMode: OutputMode = "stream"
   let textParts: string[] = []
@@ -38,10 +39,11 @@ function parseArgs(argv: string[]) {
 async function main() {
   bootstrapRuntime()
   const parsed = parseArgs(process.argv.slice(2))
+  const defaultAgent = AgentRegistry.defaultAgent().name
 
   if (!parsed.text) {
-    console.log("Usage: npm run start -- [--agent build] [--json] [--output stream|buffered] \"your prompt\"")
-    console.log("Example: npm run start -- \"read src/session/prompt.ts and explain the loop\"")
+    console.log(`Usage: npm run start -- [--agent ${defaultAgent}] [--json] [--output stream|buffered] "your prompt"`)
+    console.log("Example: npm run start -- \"read src/core/session/prompt.ts and explain the loop\"")
     return
   }
 
@@ -49,7 +51,7 @@ async function main() {
   try {
     await runPrompt({
       text: parsed.text,
-      agent: parsed.agent,
+      agent: parsed.agent ?? defaultAgent,
       printSessionJson: parsed.json,
     })
   } finally {

@@ -12,22 +12,22 @@ This project extracts a compact core of the `opencode` runtime shape, focused on
 
 ## Files
 
-- `src/session/prompt.ts`: outer session loop
-- `src/session/processor.ts`: one-step processor
-- `src/llm/index.ts`: LLM selector
-- `src/llm/qwen.ts`: DashScope SSE-based Qwen implementation with reasoning support
-- `src/llm/fake.ts`: deterministic fake implementation
-- `src/llm/types.ts`: shared LLM stream types
-- `src/runtime/logger.ts`: output renderer with `stream` and `buffered` modes
-- `src/tool/task.ts`: child-session subagent execution
-- `src/tool/batch.ts`: parallel tool fan-out
-- `src/tool/bash.ts`: local shell command execution tool
-- `src/session/compaction.ts`: compact old context into a summary message
+- `src/core/session/prompt.ts`: outer session loop
+- `src/core/session/processor.ts`: one-step processor
+- `src/core/llm/index.ts`: LLM selector
+- `src/core/llm/providers/qwen.ts`: DashScope SSE-based Qwen implementation with reasoning support
+- `src/core/llm/providers/fake.ts`: deterministic fake implementation
+- `src/core/llm/types.ts`: shared LLM stream types
+- `src/core/runtime/logger.ts`: output renderer with `stream` and `buffered` modes
+- `src/core/tool/task.ts`: child-session subagent execution
+- `src/core/tool/batch.ts`: parallel tool fan-out
+- `src/core/tool/bash.ts`: local shell command execution tool
+- `src/core/session/compaction.ts`: compact old context into a summary message
 - `src/index.ts`: demo bootstrap
 
 ## Import Conventions
 
-- Use `@/` absolute imports for project source modules, for example `@/session/prompt`.
+- Use `@/` absolute imports for project source modules, for example `@/core/session/prompt`.
 - Do not use relative imports for project-internal modules unless there is a strong reason.
 - Do not add `.js` suffixes to TypeScript source imports.
 - The build uses `tsc-alias` to rewrite alias imports for runnable ESM output in `dist/`.
@@ -49,22 +49,30 @@ Useful flags:
 
 Available built-in tools now include `read`, `grep`, `bash`, `batch`, and `task`.
 
+There is also a minimal board report flow backed by PostgreSQL:
+
+```bash
+npm run start -- --agent board_report --output buffered "Analyze board <board-id> and return a structured report."
+```
+
+The default `build` agent routes board-report requests to the `board_report` specialist, which calls `board_snapshot`, reads from the Kiwoo business database, and emits a structured multi-chapter JSON report.
+
 Example with realtime loop logs:
 
 ```bash
-npm run start -- "Use the available tools when helpful. Read src/session/prompt.ts and explain SessionPrompt.loop."
+npm run start -- "Use the available tools when helpful. Read src/core/session/prompt.ts and explain SessionPrompt.loop."
 ```
 
 Streaming mode prints model output as it arrives:
 
 ```bash
-npm run start -- --output stream "Use the available tools when helpful. Read src/session/prompt.ts and explain SessionPrompt.loop."
+npm run start -- --output stream "Use the available tools when helpful. Read src/core/session/prompt.ts and explain SessionPrompt.loop."
 ```
 
 Buffered mode prints model output only after the turn completes:
 
 ```bash
-npm run start -- --output buffered "Use the available tools when helpful. Read src/session/prompt.ts and explain SessionPrompt.loop."
+npm run start -- --output buffered "Use the available tools when helpful. Read src/core/session/prompt.ts and explain SessionPrompt.loop."
 ```
 
 You will see terminal output for:
