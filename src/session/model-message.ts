@@ -1,3 +1,4 @@
+import { renderTaggedText } from "@/llm/content"
 import type { ModelContentBlock, ModelMessage } from "@/llm/types"
 import type { AssistantMessage, CompactionPart, MessagePart, SessionInfo, TextPart, ToolPart, UserMessage } from "@/types"
 
@@ -123,36 +124,8 @@ function toToolResultMessage(part: ToolPart): ModelMessage | undefined {
 
 function serializeModelMessage(message: ModelMessage) {
   if (message.role === "tool") {
-    return message.content.map(serializeBlock).filter(Boolean).join("\n")
+    return renderTaggedText(message.content)
   }
 
-  return message.content.map(serializeBlock).filter(Boolean).join("\n")
-}
-
-function serializeBlock(block: ModelContentBlock) {
-  if (block.type === "text") return block.text
-  if (block.type === "reasoning") return ["<reasoning>", block.text, "</reasoning>"].join("\n")
-  if (block.type === "structured-output") {
-    return [
-      "<structured-output>",
-      typeof block.data === "string" ? block.data : JSON.stringify(block.data),
-      "</structured-output>",
-    ].join("\n")
-  }
-  if (block.type === "context-summary") return ["<context-summary>", block.text, "</context-summary>"].join("\n")
-  if (block.type === "tool-output") {
-    return [
-      block.title ? `<title>${block.title}</title>` : "",
-      block.metadata !== undefined ? `<metadata>${serializeUnknown(block.metadata)}</metadata>` : "",
-      `<output>${block.output}</output>`,
-    ]
-      .filter(Boolean)
-      .join("\n")
-  }
-  return `error: ${block.text}`
-}
-
-function serializeUnknown(value: unknown) {
-  if (typeof value === "string") return value
-  return JSON.stringify(value)
+  return renderTaggedText(message.content)
 }

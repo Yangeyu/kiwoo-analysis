@@ -1,16 +1,12 @@
-import { fakeStream } from "@/llm/fake"
-import { qwenStream } from "@/llm/qwen"
+// Public LLM entrypoint used by the session loop.
+import { streamText } from "@/llm/models"
 import type { LLMInput, LLMStreamResult } from "@/llm/types"
 
 export type { LLMChunk, LLMInput, LLMStreamResult, ModelMessage } from "@/llm/types"
+export { streamText } from "@/llm/models"
 
 export namespace LLM {
   export function stream(input: LLMInput): LLMStreamResult {
-    const mode = process.env.LLM_MODE ?? (hasQwenKey() ? "qwen" : "fake")
-    return mode === "fake" ? fakeStream(input) : qwenStream(input)
+    return streamText(input)
   }
-}
-
-function hasQwenKey() {
-  return Boolean(process.env.DASHSCOPE_API_KEY || process.env.QWEN_API_KEY)
 }

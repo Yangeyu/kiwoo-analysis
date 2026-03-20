@@ -1,3 +1,4 @@
+// Core LLM protocol types shared across the runtime and providers.
 import type { AgentInfo, AssistantMessage, SessionInfo, ToolDefinition, UserMessage } from "@/types"
 
 export type ModelContentBlock =
@@ -7,6 +8,30 @@ export type ModelContentBlock =
   | { type: "tool-output"; output: string; title?: string; metadata?: unknown }
   | { type: "context-summary"; text: string }
   | { type: "error"; text: string }
+
+export type ModelCapabilities = {
+  tools: boolean
+  reasoning: boolean
+  structuredOutput: boolean
+  streaming: boolean
+}
+
+export type ModelDefaults = {
+  modelID: string
+  temperature: number
+}
+
+export type ModelSpec = {
+  id: "fake" | "qwen"
+  provider: "local" | "qwen-compatible"
+  capabilities: ModelCapabilities
+  defaults: ModelDefaults
+}
+
+export type ModelRuntime = {
+  spec: ModelSpec
+  streamText(input: LLMInput): LLMStreamResult
+}
 
 export type ModelMessage = {
   role: "system" | "user" | "assistant"

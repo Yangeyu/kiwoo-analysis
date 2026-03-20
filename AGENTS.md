@@ -105,16 +105,18 @@ If any of those files are added later, update this document and follow them as h
 
 ## Architecture Preferences
 
-- Prefer a functional style for core runtime logic where it improves clarity.
-- Keep main business flow pipeline-like: resolve input -> execute step -> transform result -> decide next action.
-- Treat side effects as boundary concerns, especially for LLM I/O, shell execution, persistence, and terminal output.
-- Keep the agent loop and processor logic readable and explicit rather than overly abstract.
-- Use small focused helpers to keep orchestration code easy to scan.
-- Favor composition over inheritance.
-- Use AOP-like wrappers or boundary helpers for cross-cutting concerns such as logging, tracing, permissions, retries, and formatting.
-- Do not let logging or presentation concerns pollute the core loop logic.
-- Keep state transitions centralized and traceable, especially for session messages, tool parts, and compaction.
-- Preserve upstream OpenCode concepts in naming and structure instead of inventing unrelated abstractions.
+- Choose design patterns based on module responsibilities instead of applying one style everywhere; optimize for readability, maintainability, and extensibility first.
+- Keep the main flow explicit and easy to follow: resolve input -> build model input -> stream/process output -> execute tools -> write session state -> decide next loop step.
+- Use functional, pipeline-like orchestration for the session loop, processor, compaction, and provider adaptation paths where the flow is sequential and state transitions must stay obvious.
+- Use strategy-style boundaries for provider adapters, output modes, and agent/tool selection so variant behavior can evolve without branching complexity leaking into the main flow.
+- Use factory/builders when assembling structured objects such as model messages, system prompts, tool payloads, and runtime bootstrap wiring; keep construction logic out of the core loop when it improves scanability.
+- Use small coordinators/orchestrators for workflows that touch multiple modules, but keep business rules in focused helpers or domain functions rather than in large god objects.
+- Treat tools, providers, stores, and renderers as boundary adapters around one responsibility; keep side effects at the edges and keep core transformations deterministic where practical.
+- Favor composition over inheritance; prefer explicit dependency passing and small helper modules over deep class hierarchies or hidden framework-like indirection.
+- Apply wrapper/decorator-style helpers for cross-cutting concerns such as logging, tracing, retries, permissions, and formatting so the main path stays uncluttered.
+- Keep state transitions centralized and traceable, especially for session messages, message parts, tool lifecycle, and compaction; avoid duplicating derived state across modules.
+- When introducing abstractions, require a concrete payoff in clarity or reuse; do not abstract away the agent loop, streaming flow, or tool reinsertion mechanics to the point that the main path becomes hard to read.
+- Preserve upstream OpenCode concepts, naming, and control flow where possible, but adapt local structure when a different pattern makes the current module clearer and easier to extend.
 
 ## Type Safety and Tooling Guidelines
 
