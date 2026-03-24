@@ -18,7 +18,7 @@ This project extracts a compact core of the `opencode` runtime shape, focused on
 - `src/core/llm/providers/qwen.ts`: DashScope SSE-based Qwen implementation with reasoning support
 - `src/core/llm/providers/fake.ts`: deterministic fake implementation
 - `src/core/llm/types.ts`: shared LLM stream types
-- `src/core/runtime/logger.ts`: output renderer with `stream` and `buffered` modes
+- `src/core/runtime/logger.ts`: simple CLI UI renderer with `stream` and `buffered` modes
 - `src/core/tool/task.ts`: child-session subagent execution
 - `src/core/tool/batch.ts`: parallel tool fan-out
 - `src/core/tool/bash.ts`: local shell command execution tool
@@ -44,7 +44,7 @@ The `start` script now compiles TypeScript into `dist/` and runs `node dist/inde
 Useful flags:
 
 - `--agent build`
-- `--json` to print the full final session JSON after the live log stream
+- `--json` to print the full final session JSON after the live CLI UI
 - `--output stream|buffered`
 
 Available built-in tools now include `read`, `grep`, `bash`, `batch`, and `task`.
@@ -57,19 +57,19 @@ npm run start -- --agent board_report --output buffered "Analyze board <board-id
 
 The default `build` agent routes board-report requests to the `board_report` specialist, which calls `board_snapshot`, reads from the Kiwoo business database, and emits a structured multi-chapter JSON report.
 
-Example with realtime loop logs:
+Example with the simple CLI display:
 
 ```bash
 npm run start -- "Use the available tools when helpful. Read src/core/session/prompt.ts and explain SessionPrompt.loop."
 ```
 
-Streaming mode prints model output as it arrives:
+Streaming mode prints the answer as it arrives and keeps tool activity readable:
 
 ```bash
 npm run start -- --output stream "Use the available tools when helpful. Read src/core/session/prompt.ts and explain SessionPrompt.loop."
 ```
 
-Buffered mode prints model output only after the turn completes:
+Buffered mode waits until the turn completes, then prints compact thinking/answer blocks:
 
 ```bash
 npm run start -- --output buffered "Use the available tools when helpful. Read src/core/session/prompt.ts and explain SessionPrompt.loop."
@@ -77,12 +77,11 @@ npm run start -- --output buffered "Use the available tools when helpful. Read s
 
 You will see terminal output for:
 
-- session start
-- each loop step
-- reasoning and final answer
-- tool calls and tool results
-- compaction events
-- final finish reason
+- a small startup banner inspired by OpenCode's CLI style
+- session metadata and loop step headings
+- streamed or buffered thinking/final answer sections
+- formatted tool activity lines for `read`, `grep`, `glob`, `bash`, `task`, and fallback tools
+- compaction, structured output, and final turn status lines
 
 ## Qwen
 
@@ -107,6 +106,7 @@ Optional overrides:
 ## Notes
 
 - The Qwen implementation now uses DashScope SSE directly so `reasoning_content` can be mapped into internal reasoning events reliably.
+- The renderer borrows from OpenCode's CLI presentation approach, but stays compact and event-driven around this repo's own runtime events.
 - The renderer is intentionally mode-based: `stream` prints model output deltas in real time, while `buffered` prints complete reasoning/final blocks after each turn.
 - `TaskTool` creates a child session and recursively re-enters `SessionPrompt.prompt()`, which mirrors the core orchestration pattern in `opencode`.
 - In fake mode the demo still exercises subagents, batched tools, structured output capture, and compaction.

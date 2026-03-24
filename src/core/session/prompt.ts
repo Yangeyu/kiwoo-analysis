@@ -152,6 +152,9 @@ function decideNextAction(context: LoopContext, state: LoopState, result: Awaite
   const latestAssistant = SessionStore.get(context.sessionID).messages.find(
     (message) => message.id === state.assistant.id,
   ) as AssistantMessage | undefined
+  const hasFinalText = latestAssistant
+    ? SessionStore.getMessageText(context.sessionID, latestAssistant.id, { includeSynthetic: false }).trim().length > 0
+    : false
 
   if (latestAssistant?.structured !== undefined) {
     return { kind: "break" }
@@ -180,6 +183,22 @@ function decideNextAction(context: LoopContext, state: LoopState, result: Awaite
       return { kind: "break" }
     }
     return { kind: "continue" }
+  }
+
+  if (latestAssistant && !latestAssistant.error && !hasFinalText) {
+    const maxSteps = state.agent.steps ?? Number.POSITIVE_INFINITY
+    if (context.step < maxSteps) {
+      return { kind: "continue" }
+    }
+
+    SessionStore.updateMessage(context.sessionID, state.assistant.id, { finish: "stop" })
+    SessionStore.appendTextPart(context.sessionID, state.assistant.id, {
+      id: createID(),
+      type: "text",
+      text: "\n\n[Stopped: model ended without a final answer]",
+      synthetic: true,
+    })
+    return { kind: "break" }
   }
 
   return { kind: "break" }

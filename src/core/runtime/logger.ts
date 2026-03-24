@@ -12,6 +12,8 @@ type TurnOutput = {
   answer: string
 }
 
+const MAX_REASONING_LINES = 5
+
 type TurnKey = {
   sessionID: string
   agent: string
@@ -29,50 +31,114 @@ type OutputRenderer = {
   detach(outputs: Map<string, TurnOutput>): void
 }
 
+const ANSI = {
+  reset: "\x1b[0m",
+  bold: "\x1b[1m",
+  dim: "\x1b[2m",
+  cyan: "\x1b[96m",
+  blue: "\x1b[94m",
+  green: "\x1b[92m",
+  yellow: "\x1b[93m",
+  red: "\x1b[91m",
+  gray: "\x1b[90m",
+}
+
+function isTTY() {
+  return process.stdout.isTTY
+}
+
+function style(text: string, ...codes: string[]) {
+  if (!isTTY()) return text
+  return `${codes.join("")}${text}${ANSI.reset}`
+}
+
+function blankLine() {
+  process.stdout.write("\n")
+}
+
+function printLine(text = "") {
+  process.stdout.write(`${text}\n`)
+}
+
 function preview(value: unknown, max = 120) {
   const text = typeof value === "string" ? value : JSON.stringify(value)
   if (!text) return ""
   return text.length > max ? `${text.slice(0, max)}...` : text
 }
 
+function clipLines(text: string, maxLines: number) {
+  const lines = text.trim().split("\n")
+  if (lines.length <= maxLines) return lines.join("\n")
+  return `${lines.slice(0, maxLines).join("\n")}\n...`
+}
+
 function toTurnID(key: TurnKey) {
   return `${key.sessionID}:${key.agent}`
 }
 
-function eventLine(event: RuntimeEvent) {
-  switch (event.type) {
-    case "session-start":
-      return `[session:${event.sessionID}] start agent=${event.agent} prompt=${preview(event.text)}`
-    case "loop-step":
-      return `[session:${event.sessionID}] step=${event.step} agent=${event.agent}`
-    case "turn-start":
-      return `[turn:${event.agent}] start step=${event.step} message=${event.messageID}`
-    case "turn-phase":
-      return `[turn:${event.agent}] phase=${event.phase}`
-    case "tool-call":
-      return `[tool-call:${event.agent}] ${event.tool} ${preview(event.args)}`
-    case "tool-start":
-      return `[tool-start:${event.agent}] ${event.tool}`
-    case "tool-result":
-      return `[tool-result:${event.agent}] ${event.tool} ${preview(event.output)}`
-    case "tool-error":
-      return `[tool-error:${event.agent}] ${event.tool} ${event.error}`
-    case "structured-output":
-      return `[structured:${event.agent}] ${preview(event.output)}`
-    case "compaction":
-      return `[compaction:${event.sessionID}] ${preview(event.summary)}`
-    case "finish":
-      return `[finish:${event.agent}] ${event.finishReason}`
-    case "turn-complete":
-      return `[turn:${event.agent}] complete reason=${event.finishReason} duration=${event.durationMs}ms tools=${event.toolCalls}`
-    case "turn-abort":
-      return `[turn:${event.agent}] aborted duration=${event.durationMs}ms`
-    case "error":
-      return `[error:${event.agent}] ${event.error}`
-    case "reasoning":
-    case "text":
-      return ""
+function normalizePath(input: unknown) {
+  if (typeof input !== "string" || !input) return undefined
+  const cwd = process.cwd()
+  return input.startsWith(cwd) ? input.slice(cwd.length + 1) || "." : input
+}
+
+function formatToolLabel(tool: string, args: unknown) {
+  if (!args || typeof args !== "object") return tool
+  const input = args as Record<string, unknown>
+
+  if (tool === "read") {
+    const filePath = normalizePath(input.filePath)
+    return filePath ? `Read ${filePath}` : "Read file"
   }
+
+  if (tool === "grep") {
+    const pattern = typeof input.pattern === "string" ? input.pattern : undefined
+    return pattern ? `Search ${JSON.stringify(pattern)}` : "Search"
+  }
+
+  if (tool === "glob") {
+    const pattern = typeof input.pattern === "string" ? input.pattern : undefined
+    return pattern ? `Find ${pattern}` : "Find files"
+  }
+
+  if (tool === "bash") {
+    const command = typeof input.command === "string" ? input.command : undefined
+    return command ? `$ ${command}` : "$ shell"
+  }
+
+  if (tool === "task") {
+    const subagent = typeof input.subagent_type === "string" ? input.subagent_type : "agent"
+    const description = typeof input.description === "string" ? input.description : undefined
+    return description ? `Delegate to ${subagent}: ${description}` : `Delegate to ${subagent}`
+  }
+
+  if (tool === "batch") {
+    const calls = Array.isArray(input.calls) ? input.calls.length : undefined
+    return calls ? `Run batch (${calls})` : "Run batch"
+  }
+
+  if (tool === "StructuredOutput") {
+    return "Return structured output"
+  }
+
+  return `${tool} ${preview(args, 80)}`
+}
+
+function printLogo() {
+  const lines = [
+    `${style("  ___                   _____          _", ANSI.cyan, ANSI.bold)}`,
+    `${style(" / _ \\ _ __   ___ _ __| ____|_  _____| |", ANSI.cyan, ANSI.bold)}`,
+    `${style("| | | | '_ \\ / _ \\ '__|  _| \\ \/ / _ \\ |", ANSI.blue, ANSI.bold)}`,
+    `${style("| |_| | |_) |  __/ |  | |___ >  <  __/ |", ANSI.blue, ANSI.bold)}`,
+    `${style(" \\___/| .__/ \\___|_|  |_____/_/\\_\\___|_|", ANSI.green, ANSI.bold)}`,
+    `${style("      |_|", ANSI.green, ANSI.bold)} ${style("minimal cli ui", ANSI.dim)}`,
+  ]
+
+  blankLine()
+  for (const line of lines) {
+    printLine(line)
+  }
+  blankLine()
 }
 
 class BufferedOutputRenderer implements OutputRenderer {
@@ -86,10 +152,15 @@ class BufferedOutputRenderer implements OutputRenderer {
 
   flush(event: TurnKey, output: TurnOutput) {
     if (output.reasoning.trim()) {
-      console.log(`[reasoning:${event.agent}] ${output.reasoning.trim()}`)
+      printLine(style(`Thinking - ${event.agent}`, ANSI.dim, ANSI.bold))
+      printLine(clipLines(output.reasoning, MAX_REASONING_LINES))
+      blankLine()
     }
+
     if (output.answer.trim()) {
-      console.log(`[final:${event.agent}] ${output.answer.trim()}`)
+      printLine(style(`Answer - ${event.agent}`, ANSI.bold))
+      printLine(output.answer.trim())
+      blankLine()
     }
   }
 
@@ -105,16 +176,31 @@ class BufferedOutputRenderer implements OutputRenderer {
 
 class StreamingOutputRenderer implements OutputRenderer {
   private states = new Map<string, StreamState>()
+  private reasoningLines = new Map<string, number>()
 
   onReasoning(event: Extract<RuntimeEvent, { type: "reasoning" }>, output: TurnOutput) {
     void output
+    const turnID = toTurnID(event)
     const state = this.getState(event)
     if (!state.reasoningOpen) {
       this.closeAnswer(state)
-      process.stdout.write(`[reasoning:${event.agent}] `)
+      blankLine()
+      printLine(style(`Thinking - ${event.agent}`, ANSI.dim, ANSI.bold))
       state.reasoningOpen = true
     }
-    process.stdout.write(event.textDelta)
+    const nextCount = (this.reasoningLines.get(turnID) ?? 0) + event.textDelta.split("\n").length - 1
+    const currentCount = this.reasoningLines.get(turnID) ?? 0
+
+    if (currentCount < MAX_REASONING_LINES) {
+      const lines = event.textDelta.split("\n")
+      const remaining = MAX_REASONING_LINES - currentCount
+      process.stdout.write(lines.slice(0, remaining).join("\n"))
+      if (nextCount >= MAX_REASONING_LINES) {
+        process.stdout.write("\n...")
+      }
+    }
+
+    this.reasoningLines.set(turnID, Math.max(currentCount, nextCount))
   }
 
   onText(event: Extract<RuntimeEvent, { type: "text" }>, output: TurnOutput) {
@@ -122,7 +208,8 @@ class StreamingOutputRenderer implements OutputRenderer {
     const state = this.getState(event)
     this.closeReasoning(state)
     if (!state.answerOpen) {
-      process.stdout.write(`[final:${event.agent}] `)
+      blankLine()
+      printLine(style(`Answer - ${event.agent}`, ANSI.bold))
       state.answerOpen = true
     }
     process.stdout.write(event.textDelta)
@@ -134,6 +221,7 @@ class StreamingOutputRenderer implements OutputRenderer {
     this.closeReasoning(state)
     this.closeAnswer(state)
     this.states.delete(toTurnID(event))
+    this.reasoningLines.delete(toTurnID(event))
   }
 
   detach(outputs: Map<string, TurnOutput>) {
@@ -160,13 +248,13 @@ class StreamingOutputRenderer implements OutputRenderer {
 
   private closeReasoning(state: StreamState) {
     if (!state.reasoningOpen) return
-    process.stdout.write("\n")
+    blankLine()
     state.reasoningOpen = false
   }
 
   private closeAnswer(state: StreamState) {
     if (!state.answerOpen) return
-    process.stdout.write("\n")
+    blankLine()
     state.answerOpen = false
   }
 }
@@ -174,6 +262,7 @@ class StreamingOutputRenderer implements OutputRenderer {
 class ConsoleLogger {
   private outputs = new Map<string, TurnOutput>()
   private renderer: OutputRenderer
+  private bannerShown = false
 
   constructor(options: RendererOptions) {
     this.renderer = options.outputMode === "stream" ? new StreamingOutputRenderer() : new BufferedOutputRenderer()
@@ -198,13 +287,83 @@ class ConsoleLogger {
       this.flush(event)
     }
 
-    const line = eventLine(event)
-    if (line) console.log(line)
+    this.renderMeta(event)
   }
 
   detach() {
     this.renderer.detach(this.outputs)
     this.outputs.clear()
+  }
+
+  private renderMeta(event: RuntimeEvent) {
+    if (event.type === "session-start") {
+      if (!this.bannerShown) {
+        printLogo()
+        this.bannerShown = true
+      }
+      printLine(style(`Session ${event.sessionID}`, ANSI.bold))
+      printLine(`${style("Agent", ANSI.gray, ANSI.bold)} ${event.agent}`)
+      printLine(`${style("Prompt", ANSI.gray, ANSI.bold)} ${preview(event.text, 160)}`)
+      blankLine()
+      return
+    }
+
+    if (event.type === "loop-step") {
+      printLine(style(`Step ${event.step} - ${event.agent}`, ANSI.cyan, ANSI.bold))
+      return
+    }
+
+    if (event.type === "tool-start") {
+      printLine(`${style("[run]", ANSI.blue, ANSI.bold)} ${event.tool}`)
+      return
+    }
+
+    if (event.type === "tool-call") {
+      printLine(`${style("->", ANSI.gray, ANSI.bold)} ${formatToolLabel(event.tool, event.args)}`)
+      return
+    }
+
+    if (event.type === "tool-result") {
+      const suffix = preview(event.output, 80)
+      printLine(`${style("[ok]", ANSI.green, ANSI.bold)} ${event.tool}${suffix ? style(` - ${suffix}`, ANSI.dim) : ""}`)
+      return
+    }
+
+    if (event.type === "tool-error") {
+      printLine(`${style("[x]", ANSI.red, ANSI.bold)} ${event.tool}`)
+      printLine(style(event.error, ANSI.red))
+      return
+    }
+
+    if (event.type === "compaction") {
+      printLine(`${style("[compact]", ANSI.yellow, ANSI.bold)} compact context`)
+      printLine(style(preview(event.summary, 160), ANSI.dim))
+      return
+    }
+
+    if (event.type === "structured-output") {
+      printLine(`${style("[ok]", ANSI.green, ANSI.bold)} structured output captured`)
+      return
+    }
+
+    if (event.type === "turn-complete") {
+      printLine(style(`Done - ${event.finishReason} - ${event.durationMs}ms - tools ${event.toolCalls}`, ANSI.dim))
+      blankLine()
+      return
+    }
+
+    if (event.type === "turn-abort") {
+      printLine(style(`Aborted - ${event.durationMs}ms`, ANSI.red, ANSI.bold))
+      blankLine()
+      return
+    }
+
+    if (event.type === "error") {
+      printLine(style(`Error - ${event.agent}`, ANSI.red, ANSI.bold))
+      printLine(style(event.error, ANSI.red))
+      blankLine()
+      return
+    }
   }
 
   private flush(event: TurnKey) {

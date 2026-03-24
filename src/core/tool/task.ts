@@ -1,5 +1,4 @@
 import { AgentRegistry } from "@/core/agent/registry"
-import { serializeAssistantMessage } from "@/core/session/model-message"
 import { SessionPrompt } from "@/core/session/prompt"
 import { SessionStore } from "@/core/session/store"
 import type { AssistantMessage, ToolDefinition } from "@/core/types"
@@ -43,14 +42,19 @@ export const TaskTool: ToolDefinition<TaskArgs> = {
       sessionID: child.id,
       text: args.prompt,
       agent: agent.name,
+      format: ctx.format,
     })
 
     const lastAssistant = [...child.messages].reverse().find((message) => message.role === "assistant") as
       | AssistantMessage
       | undefined
-    const serializedResult = lastAssistant
-      ? serializeAssistantMessage(lastAssistant, SessionStore.getParts(child.id, lastAssistant.id))
-      : ""
+    const finalText = lastAssistant ? SessionStore.getMessageText(child.id, lastAssistant.id, { includeSynthetic: false }).trim() : ""
+    const synthesizedText = lastAssistant ? SessionStore.getMessageText(child.id, lastAssistant.id).trim() : ""
+    const structuredText =
+      lastAssistant?.structured !== undefined
+        ? JSON.stringify(lastAssistant.structured, null, 2)
+        : ""
+    const resultText = structuredText || finalText || synthesizedText || "Subagent stopped without final answer"
 
     return {
       title: args.description,
@@ -59,7 +63,7 @@ export const TaskTool: ToolDefinition<TaskArgs> = {
         `agent: ${agent.name}`,
         "",
         "<task_result>",
-        serializedResult,
+        resultText,
         "</task_result>",
       ].join("\n"),
       metadata: {

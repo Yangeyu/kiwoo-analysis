@@ -312,6 +312,7 @@ async function executeToolCall(
       messageID: context.assistant.id,
       agent: context.agent.name,
       abort: context.abort,
+      format: context.user.format,
       async metadata(metadataUpdate) {
         SessionStore.updatePart(context.session.id, context.assistant.id, part.id, {
           state: {

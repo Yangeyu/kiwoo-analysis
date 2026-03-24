@@ -40,6 +40,7 @@ export type ToolContext = {
   messageID: string
   agent: string
   abort: AbortSignal
+  format?: OutputFormat
   metadata(input: { title?: string; metadata?: unknown }): Promise<void>
   captureStructuredOutput(output: unknown): Promise<void>
 }
