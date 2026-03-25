@@ -1,4 +1,5 @@
 import { AgentRegistry } from "@/core/agent"
+import { initSessionStore } from "@/core/config"
 import { RuntimeModules } from "@/core/runtime/modules"
 import { SessionPrompt } from "@/core/session/prompt"
 import { SessionStore } from "@/core/session/store"
@@ -10,6 +11,8 @@ let bootstrapped = false
 export function bootstrapRuntime() {
   if (bootstrapped) return
   bootstrapped = true
+
+  initSessionStore()
 
   for (const module of RuntimeModules) {
     for (const tool of module.tools ?? []) {

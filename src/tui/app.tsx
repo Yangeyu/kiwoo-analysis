@@ -433,7 +433,7 @@ function ComposerCard(props: {
 }
 
 function TraceEntryBlock(props: { entry: TraceEntry; expanded: boolean; onToggle: () => void }) {
-  const isTopLevelAnswer = props.entry.kind === "answer" && !SessionStore.sessions.get(props.entry.sessionID)?.parentID
+  const isTopLevelAnswer = props.entry.kind === "answer" && !SessionStore.get(props.entry.sessionID)?.parentID
   const collapsible = Boolean(props.entry.detail) && !isTopLevelAnswer && props.entry.kind !== "result"
   const body = collapsible && props.expanded ? props.entry.detail ?? props.entry.text : props.entry.text
 
@@ -583,8 +583,12 @@ function belongsToSessionTree(sessionID: string, rootSessionID: string | undefin
   let current: string | undefined = sessionID
   while (current) {
     if (current === rootSessionID) return true
-    const session = SessionStore.sessions.get(current)
-    current = session?.parentID
+    try {
+      const session = SessionStore.get(current)
+      current = session?.parentID
+    } catch {
+      break
+    }
   }
 
   return false
@@ -610,9 +614,13 @@ function handleTraceEvent(
     const existing = sessionPaths.get(sessionID)
     if (existing) return existing
 
-    const session = SessionStore.sessions.get(sessionID)
-    const parentPath = session?.parentID ? sessionPaths.get(session.parentID) ?? [] : []
-    return fallbackAgent ? [...parentPath, fallbackAgent] : parentPath
+    try {
+      const session = SessionStore.get(sessionID)
+      const parentPath = session?.parentID ? sessionPaths.get(session.parentID) ?? [] : []
+      return fallbackAgent ? [...parentPath, fallbackAgent] : parentPath
+    } catch {
+      return fallbackAgent ? [] : []
+    }
   }
 
   const pushToolID = (sessionID: string, entryID: string) => {
@@ -634,8 +642,11 @@ function handleTraceEvent(
   }
 
   if (event.type === "session-start") {
-    const session = SessionStore.sessions.get(event.sessionID)
-    const parentPath = session?.parentID ? sessionPaths.get(session.parentID) ?? [] : []
+    let parentPath: string[] = []
+    try {
+      const session = SessionStore.get(event.sessionID)
+      parentPath = session?.parentID ? sessionPaths.get(session.parentID) ?? [] : []
+    } catch {}
     const path = [...parentPath, event.agent]
     sessionPaths.set(event.sessionID, path)
     appendEntry({
