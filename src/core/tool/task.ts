@@ -31,7 +31,7 @@ export const TaskTool: ToolDefinition<TaskArgs> = {
     const agent = AgentRegistry.get(args.subagent_type)
 
     const child =
-      args.task_id && SessionStore.sessions.has(args.task_id)
+      args.task_id && SessionStore.list().some((s) => s.id === args.task_id)
         ? SessionStore.get(args.task_id)
         : SessionStore.create({
             parentID: ctx.sessionID,

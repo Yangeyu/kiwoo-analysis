@@ -11,6 +11,17 @@ export type ProviderModel = {
   modelID: string
 }
 
+export type ErrorInfo = {
+  message: string
+  retryable?: boolean
+  code?: string
+}
+
+export type TimeInfo = {
+  created: number
+  completed?: number
+}
+
 export type OutputFormat =
   | {
       type: "text"
@@ -68,6 +79,7 @@ export type UserMessage = {
   agent: string
   model: ProviderModel
   format?: OutputFormat
+  time: TimeInfo
 }
 
 export type AssistantMessage = {
@@ -78,8 +90,9 @@ export type AssistantMessage = {
   agent: string
   model: ProviderModel
   finish?: FinishReason
-  error?: string
+  error?: ErrorInfo
   structured?: unknown
+  time: TimeInfo
 }
 
 export type TextPart = {
@@ -108,10 +121,13 @@ export type ToolPart = {
   callID: string
   state:
     | {
-        status: "pending" | "running"
+      status: "pending" | "running"
         input: unknown
         title?: string
         metadata?: unknown
+        time?: {
+          start: number
+        }
       }
     | {
         status: "completed"
@@ -119,13 +135,21 @@ export type ToolPart = {
         output: string
         title?: string
         metadata?: unknown
+        time?: {
+          start: number
+          end: number
+        }
       }
     | {
         status: "error"
         input: unknown
-        error: string
+        error: ErrorInfo
         title?: string
         metadata?: unknown
+        time?: {
+          start: number
+          end: number
+        }
       }
 }
 

@@ -98,7 +98,7 @@ function buildAssistantContent(message: AssistantMessage, parts: MessagePart[]):
   }
 
   if (message.error) {
-    content.push({ type: "error", text: message.error })
+    content.push({ type: "error", text: message.error.message })
   }
 
   return content

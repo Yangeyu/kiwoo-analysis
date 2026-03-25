@@ -5,6 +5,7 @@ import {
   createID,
   type AgentInfo,
   type AssistantMessage,
+  type ErrorInfo,
   type ProcessorResult,
   type ReasoningPart,
   type SessionInfo,
@@ -13,6 +14,16 @@ import {
   type ToolPart,
   type UserMessage,
 } from "@/core/types"
+import {
+  isAbortError,
+  isDoomLoop,
+  isRetryableError,
+  retryDelay,
+  sleep,
+  toErrorInfo,
+  MAX_RETRIES,
+  classifyRetry,
+} from "@/core/session/retry"
 
 type ProcessorInput = {
   session: SessionInfo
@@ -29,10 +40,15 @@ type ProcessorContext = ProcessorInput & {
   startedAt: number
   phase: TurnPhase
   toolCalls: number
+  retryCount: number
   sawReasoning: boolean
   sawText: boolean
   reasoningPart?: ReasoningPart
   textPart?: TextPart
+  recentToolCalls: Array<{
+    toolName: string
+    args: unknown
+  }>
 }
 
 type TurnPhase = "starting" | "streaming" | "reasoning" | "responding" | "executing-tool" | "finishing"
@@ -41,7 +57,7 @@ type ProcessorAction =
   | { kind: "append-reasoning", textDelta: string }
   | { kind: "append-text", textDelta: string }
   | { kind: "finish", finishReason: AssistantMessage["finish"] }
-  | { kind: "fail", message: string }
+  | { kind: "fail", error: ErrorInfo }
 
 type ToolExecutionResult =
   | { kind: "continue" }
@@ -54,39 +70,58 @@ export namespace SessionProcessor {
       startedAt: Date.now(),
       phase: "starting",
       toolCalls: 0,
+      retryCount: 0,
       sawReasoning: false,
       sawText: false,
+      recentToolCalls: [],
     }
     let sawToolCall = false
 
     emitTurnStart(context)
 
-    const result = LLM.stream(input)
+    while (true) {
+      try {
+        const result = LLM.stream(input)
 
-    transitionTurn(context, "streaming")
+        transitionTurn(context, "streaming")
 
-    try {
-      for await (const chunk of result.fullStream) {
-        input.abort.throwIfAborted()
+        for await (const chunk of result.fullStream) {
+          input.abort.throwIfAborted()
 
-        if (chunk.type === "tool-call") {
-          sawToolCall = true
-          const toolResult = await executeToolCall(context, chunk)
-          if (toolResult.kind === "stop") return "stop"
-          transitionTurn(context, "streaming")
+          if (chunk.type === "tool-call") {
+            sawToolCall = true
+            const toolResult = await executeToolCall(context, chunk)
+            if (toolResult.kind === "stop") return "stop"
+            transitionTurn(context, "streaming")
+            continue
+          }
+
+          if (chunk.type === "error") {
+            throw chunk.error
+          }
+
+          const actions = interpretChunk(chunk)
+          const applyResult = applyActions(context, actions)
+          if (applyResult === "stop") return "stop"
+        }
+
+        break
+      } catch (error) {
+        if (isAbortError(error)) {
+          abortAssistant(context)
+          return "stop"
+        }
+
+        const retryable = isRetryableError(error)
+        if (retryable && context.retryCount < MAX_RETRIES) {
+          context.retryCount += 1
+          await sleep(retryDelay(context.retryCount), input.abort)
           continue
         }
 
-        const actions = interpretChunk(chunk)
-        const applyResult = applyActions(context, actions)
-        if (applyResult === "stop") return "stop"
-      }
-    } catch (error) {
-      if (isAbortError(error)) {
-        abortAssistant(context)
+        failAssistant(context, toErrorInfo(error, true))
         return "stop"
       }
-      throw error
     }
 
     if (input.assistant.finish === "length") return "compact"
@@ -96,7 +131,7 @@ export namespace SessionProcessor {
   }
 }
 
-function interpretChunk(chunk: Exclude<LLMChunk, { type: "tool-call" }>): ProcessorAction[] {
+function interpretChunk(chunk: Exclude<LLMChunk, { type: "tool-call" | "error" }>): ProcessorAction[] {
   switch (chunk.type) {
     case "reasoning":
       return [
@@ -117,13 +152,6 @@ function interpretChunk(chunk: Exclude<LLMChunk, { type: "tool-call" }>): Proces
         {
           kind: "finish",
           finishReason: chunk.finishReason as AssistantMessage["finish"],
-        },
-      ]
-    case "error":
-      return [
-        {
-          kind: "fail",
-          message: chunk.error instanceof Error ? chunk.error.message : String(chunk.error),
         },
       ]
   }
@@ -147,7 +175,7 @@ function applyActions(context: ProcessorContext, actions: ProcessorAction[]): Pr
     }
 
     if (action.kind === "fail") {
-      failAssistant(context, action.message)
+      failAssistant(context, action.error)
       return "stop"
     }
   }
@@ -216,6 +244,10 @@ function finishAssistant(context: ProcessorContext, finishReason: AssistantMessa
   transitionTurn(context, "finishing")
   context.assistant = SessionStore.updateMessage(context.session.id, context.assistant.id, {
     finish: finishReason,
+    time: {
+      ...context.assistant.time,
+      completed: Date.now(),
+    },
   })
   RuntimeEvents.emit({
     type: "finish",
@@ -234,17 +266,21 @@ function finishAssistant(context: ProcessorContext, finishReason: AssistantMessa
   })
 }
 
-function failAssistant(context: ProcessorContext, message: string) {
+function failAssistant(context: ProcessorContext, error: ErrorInfo) {
   transitionTurn(context, "finishing")
   context.assistant = SessionStore.updateMessage(context.session.id, context.assistant.id, {
-    error: message,
+    error,
     finish: "error",
+    time: {
+      ...context.assistant.time,
+      completed: Date.now(),
+    },
   })
   RuntimeEvents.emit({
     type: "error",
     sessionID: context.session.id,
     agent: context.agent.name,
-    error: message,
+    error: error.message,
   })
   RuntimeEvents.emit({
     type: "turn-complete",
@@ -283,17 +319,45 @@ async function executeToolCall(
 
   const tool = context.tools.find((item) => item.id === chunk.toolName)
   if (!tool) {
-    failAssistant(context, `Tool not available: ${chunk.toolName}`)
+    failAssistant(context, {
+      message: `Tool not available: ${chunk.toolName}`,
+      retryable: false,
+      code: "tool_not_available",
+    })
     return { kind: "stop" }
   }
 
   const parsedArgs = tool.parameters.safeParse(chunk.args)
   if (!parsedArgs.success) {
-    failAssistant(context, `Invalid arguments for tool ${chunk.toolName}: ${parsedArgs.error.message}`)
+    failAssistant(context, {
+      message: `Invalid arguments for tool ${chunk.toolName}: ${parsedArgs.error.message}`,
+      retryable: false,
+      code: "tool_invalid_args",
+    })
     return { kind: "stop" }
   }
 
   const validatedArgs = parsedArgs.data
+
+  if (isDoomLoop(context.recentToolCalls, chunk.toolName, validatedArgs)) {
+    failAssistant(context, {
+      message: `Potential doom loop detected for tool ${chunk.toolName}`,
+      retryable: false,
+      code: "doom_loop",
+    })
+    SessionStore.appendTextPart(context.session.id, context.assistant.id, {
+      id: createID(),
+      type: "text",
+      text: "\n\n[Stopped: repeated identical tool calls detected]",
+      synthetic: true,
+    })
+    return { kind: "stop" }
+  }
+
+  context.recentToolCalls.push({
+    toolName: chunk.toolName,
+    args: validatedArgs,
+  })
 
   const part = SessionStore.startToolPart(context.session.id, context.assistant.id, {
     id: createID(),
@@ -303,6 +367,9 @@ async function executeToolCall(
     state: {
       status: "running",
       input: validatedArgs,
+      time: {
+        start: Date.now(),
+      },
     },
   })
 
@@ -342,6 +409,10 @@ async function executeToolCall(
         output: toolResult.output,
         title: toolResult.title,
         metadata: toolResult.metadata,
+        time: {
+          start: part.state.time?.start ?? Date.now(),
+          end: Date.now(),
+        },
       },
     })
 
@@ -360,9 +431,17 @@ async function executeToolCall(
         state: {
           status: "error",
           input: validatedArgs,
-          error: "Aborted",
+          error: {
+            message: "Aborted",
+            retryable: false,
+            code: "aborted",
+          },
           title: part.state.title,
           metadata: part.state.metadata,
+          time: {
+            start: part.state.time?.start ?? Date.now(),
+            end: Date.now(),
+          },
         },
       })
       RuntimeEvents.emit({
@@ -381,9 +460,16 @@ async function executeToolCall(
       state: {
         status: "error",
         input: validatedArgs,
-        error: message,
+        error: {
+          message,
+          retryable: false,
+        },
         title: part.state.title,
         metadata: part.state.metadata,
+        time: {
+          start: part.state.time?.start ?? Date.now(),
+          end: Date.now(),
+        },
       },
     })
     RuntimeEvents.emit({
@@ -393,7 +479,7 @@ async function executeToolCall(
       tool: chunk.toolName,
       error: message,
     })
-    failAssistant(context, message)
+    failAssistant(context, { message, retryable: false })
     return { kind: "stop" }
   }
 }
@@ -422,8 +508,16 @@ function transitionTurn(context: ProcessorContext, phase: TurnPhase) {
 
 function abortAssistant(context: ProcessorContext) {
   context.assistant = SessionStore.updateMessage(context.session.id, context.assistant.id, {
-    error: "Aborted",
+    error: {
+      message: "Aborted",
+      retryable: false,
+      code: "aborted",
+    },
     finish: "error",
+    time: {
+      ...context.assistant.time,
+      completed: Date.now(),
+    },
   })
   RuntimeEvents.emit({
     type: "turn-abort",
@@ -439,8 +533,4 @@ function resolveTurnStep(context: ProcessorContext) {
   return session.messages.filter((message) => message.role === "assistant").length
 }
 
-function isAbortError(error: unknown) {
-  return error instanceof DOMException
-    ? error.name === "AbortError"
-    : error instanceof Error && error.name === "AbortError"
-}
+

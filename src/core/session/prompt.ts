@@ -93,6 +93,9 @@ function createUserMessage(input: {
     agent: input.agent.name,
     model: input.model ?? { providerID: "qwen", modelID: "qwen3.5-plus" },
     format: input.format,
+    time: {
+      created: Date.now(),
+    },
   }
 }
 
@@ -220,6 +223,9 @@ function createAssistantMessage(sessionID: string, user: UserMessage, agent: Age
     parentID: user.id,
     agent: agent.name,
     model: user.model,
+    time: {
+      created: Date.now(),
+    },
   }
 }
 async function resolveToolsForTurn(agent: AgentInfo, format: UserMessage["format"]) {
