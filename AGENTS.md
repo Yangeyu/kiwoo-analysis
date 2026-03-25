@@ -28,6 +28,33 @@ Repository core constraints for coding agents.
 - `packages/opencode/src/tool/tool.ts`
 - `packages/opencode/src/provider/`
 
+## Project Docs Map
+
+- Read `docs/README.md` first when you need the project documentation index.
+- Read `docs/project-map.md` first when you need the overall architecture and execution path.
+- Before exploring source deeply, prefer the matching module doc under `docs/modules/` and then confirm details in code.
+- Keep `docs/` in sync when module responsibilities, runtime flow, or user-visible capabilities change.
+
+```text
+docs/
+├── README.md
+├── project-map.md
+└── modules/
+    ├── entrypoints-and-ui.md
+    ├── runtime-and-session.md
+    ├── llm-and-providers.md
+    ├── agents-and-tools.md
+    └── board-and-integrations.md
+```
+
+### Doc Routing
+
+- CLI or TUI work: read `docs/modules/entrypoints-and-ui.md`
+- Runtime loop, store, compaction, or system prompt work: read `docs/modules/runtime-and-session.md`
+- Model/provider/streaming work: read `docs/modules/llm-and-providers.md`
+- Agent/tool/delegation work: read `docs/modules/agents-and-tools.md`
+- Board report or PostgreSQL integration work: read `docs/modules/board-and-integrations.md`
+
 ## Core Constraints
 
 - Keep the main runtime flow explicit: input -> model -> tool execution -> session update -> next step.
