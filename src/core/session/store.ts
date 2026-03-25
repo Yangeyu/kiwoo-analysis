@@ -31,6 +31,10 @@ export const SessionStore = {
     return session
   },
 
+  list() {
+    return [...this.sessions.values()]
+  },
+
   addMessage(sessionID: string, message: SessionMessage) {
     const session = this.get(sessionID)
     session.messages.push(message)

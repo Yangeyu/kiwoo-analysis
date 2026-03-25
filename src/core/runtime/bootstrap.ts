@@ -28,6 +28,7 @@ export async function runPrompt(options: {
   sessionID?: string
   printSessionJson?: boolean
   format?: UserMessage["format"]
+  abort?: AbortSignal
 }) {
   bootstrapRuntime()
   const session = options.sessionID ? SessionStore.get(options.sessionID) : SessionStore.create({ title: "CLI session" })
@@ -37,6 +38,7 @@ export async function runPrompt(options: {
     text: options.text,
     agent: options.agent ?? AgentRegistry.defaultAgent().name,
     format: options.format,
+    abort: options.abort,
   })
 
   const current = SessionStore.get(session.id)

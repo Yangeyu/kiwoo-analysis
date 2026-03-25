@@ -17,11 +17,12 @@ type PromptInput = {
   agent?: string
   model?: ProviderModel
   format?: UserMessage["format"]
+  abort?: AbortSignal
 }
 
 type LoopContext = {
   sessionID: string
-  abort: AbortController
+  abort: AbortSignal
   step: number
 }
 
@@ -55,13 +56,13 @@ export namespace SessionPrompt {
     })
     emitSessionStart(session.id, user)
 
-    return loop({ sessionID: session.id })
+    return loop({ sessionID: session.id, abort: input.abort })
   }
 
-  export async function loop(input: { sessionID: string }) {
+  export async function loop(input: { sessionID: string; abort?: AbortSignal }) {
     const context: LoopContext = {
       sessionID: input.sessionID,
-      abort: new AbortController(),
+      abort: input.abort ?? new AbortController().signal,
       step: 0,
     }
 
@@ -144,9 +145,9 @@ async function runLoopStep(context: LoopContext, state: LoopState) {
     }),
     messages: toModelMessages(session),
     tools: state.tools,
-    abort: context.abort.signal,
-  })
-}
+      abort: context.abort,
+    })
+  }
 
 function decideNextAction(context: LoopContext, state: LoopState, result: Awaited<ReturnType<typeof SessionProcessor.process>>): LoopDecision {
   const latestAssistant = SessionStore.get(context.sessionID).messages.find(

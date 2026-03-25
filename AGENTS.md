@@ -75,14 +75,14 @@ Repository core constraints for coding agents.
 
 ## Validation
 
-- Use npm scripts from `package.json`.
-- Baseline checks: `npm run check`, `npm run build`, and focused `npm run start -- ...` smoke runs.
+- Use bun scripts from `package.json`.
+- Baseline checks: `bun run check`, `bun run build`, and focused `bun run ...` smoke runs.
 - Useful smoke runs:
 
 ```bash
-npm run start -- --output stream "你是谁"
-LLM_MODE=qwen npm run start -- --output stream "你是谁"
-LLM_MODE=fake npm run start -- --output buffered "@general investigate auth flow"
+bun run start --output stream "你是谁"
+LLM_MODE=qwen bun run start --output stream "你是谁"
+LLM_MODE=fake bun run start --output buffered "@general investigate auth flow"
 ```
 
 - There is currently no `npm test` script.
