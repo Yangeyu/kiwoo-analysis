@@ -1,13 +1,22 @@
 import { SessionPrompt } from "@/core/session/prompt"
 import type { ISessionStore } from "@/core/session/store"
 import { defineTool } from "@/core/tool/tool"
-import type { AssistantMessage, ProviderModel, ToolDefinition } from "@/core/types"
+import type {
+  Artifact,
+  ArtifactFormat,
+  AssistantMessage,
+  ProviderModel,
+  ToolDefinition,
+} from "@/core/types"
 import { z } from "zod"
 
 const BaseTaskParameters = {
   description: z.string().trim().min(3).max(120),
   prompt: z.string().trim().min(1),
   subagent_type: z.string().trim().min(1),
+  intent: z.enum(["investigate", "draft", "deliver"]).default("investigate"),
+  artifact_type: z.string().trim().min(1).max(80).optional(),
+  content_format: z.enum(["markdown", "text", "json"]).optional(),
 }
 
 export const TaskParameters = z.object(BaseTaskParameters)
@@ -22,7 +31,7 @@ export type TaskResumeArgs = z.infer<typeof TaskResumeParameters>
 export const TaskTool: ToolDefinition<TaskArgs> = createTaskTool({
   id: "task",
   description:
-    "Start a new subagent in a new child session. Always use this to begin delegated work and do not pass any previous task id.",
+    "Start a new subagent in a new child session. Always use this to begin delegated work and do not pass any previous task id. Set intent to investigate, draft, or deliver so the runtime knows whether to summarize or passthrough the result.",
   parameters: TaskParameters,
   resume: false,
 })
@@ -30,15 +39,15 @@ export const TaskTool: ToolDefinition<TaskArgs> = createTaskTool({
 export const TaskResumeTool: ToolDefinition<TaskResumeArgs> = createTaskTool({
   id: "task_resume",
   description:
-    "Resume an existing delegated subagent using a previously returned task_id from the current parent session. Use this only when you intentionally continue that exact child session.",
+    "Resume an existing delegated subagent using a previously returned task_id from the current parent session. Use this only when you intentionally continue that exact child session, and preserve the same intent unless the deliverable semantics changed.",
   parameters: TaskResumeParameters,
   resume: true,
 })
 
-function createTaskTool<TArgs extends TaskArgs | TaskResumeArgs>(input: {
+function createTaskTool<P extends z.ZodTypeAny>(input: {
   id: string
   description: string
-  parameters: z.ZodType<TArgs>
+  parameters: P
   resume: boolean
 }) {
   return defineTool({
@@ -51,6 +60,7 @@ function createTaskTool<TArgs extends TaskArgs | TaskResumeArgs>(input: {
         metadata: {
           subagentName: args.subagent_type,
           resume: input.resume,
+          intent: args.intent,
         },
       }
     },
@@ -120,13 +130,16 @@ function createTaskTool<TArgs extends TaskArgs | TaskResumeArgs>(input: {
       const lastAssistant = [...child.messages].reverse().find((message) => message.role === "assistant") as
         | AssistantMessage
         | undefined
-      const finalText = lastAssistant ? store.getMessageText(child.id, lastAssistant.id, { includeSynthetic: false }).trim() : ""
-      const synthesizedText = lastAssistant ? store.getMessageText(child.id, lastAssistant.id).trim() : ""
-      const structuredText =
-        lastAssistant?.structured !== undefined
-          ? JSON.stringify(lastAssistant.structured, null, 2)
-          : ""
-      const resultText = structuredText || finalText || synthesizedText || "Subagent stopped without final answer"
+      const result = extractTaskResult({
+        childSessionId: child.id,
+        lastAssistant,
+        store,
+      })
+      const artifact = resolveDelegationArtifact(args, agent.name, result)
+
+      if (artifact?.deliveryMode === "passthrough") {
+        await ctx.captureArtifact(artifact)
+      }
 
       return {
         title: args.description,
@@ -135,17 +148,75 @@ function createTaskTool<TArgs extends TaskArgs | TaskResumeArgs>(input: {
           `agent: ${agent.name}`,
           "",
           "<task_result>",
-          resultText,
+          artifact?.body ?? result.text,
           "</task_result>",
         ].join("\n"),
         metadata: {
           taskId: child.id,
           sessionId: child.id,
           agentName: agent.name,
+          intent: args.intent,
+          artifactType: artifact?.type,
+          deliveryMode: artifact?.deliveryMode,
+          contentFormat: artifact?.format,
         },
       }
     },
   })
+}
+
+function extractTaskResult(input: {
+  childSessionId: string
+  lastAssistant: AssistantMessage | undefined
+  store: ISessionStore
+}) {
+  const finalText = input.lastAssistant
+    ? input.store.getMessageText(input.childSessionId, input.lastAssistant.id, { includeSynthetic: false }).trim()
+    : ""
+  const synthesizedText = input.lastAssistant
+    ? input.store.getMessageText(input.childSessionId, input.lastAssistant.id).trim()
+    : ""
+  const structuredText =
+    input.lastAssistant?.structured !== undefined
+      ? JSON.stringify(input.lastAssistant.structured, null, 2)
+      : ""
+  const text = structuredText || finalText || synthesizedText || "Subagent stopped without final answer"
+
+  return {
+    text,
+    artifact: input.lastAssistant?.artifact,
+  }
+}
+
+function resolveDelegationArtifact(
+  args: TaskArgs | TaskResumeArgs,
+  agentName: string,
+  result: { text: string; artifact?: Artifact },
+): Artifact | undefined {
+  if (result.artifact) {
+    return result.artifact
+  }
+
+  if (args.intent !== "deliver") {
+    return undefined
+  }
+
+  return {
+    type: args.artifact_type ?? inferArtifactType(agentName),
+    format: args.content_format ?? inferArtifactFormat(agentName),
+    body: result.text,
+    deliveryMode: "passthrough",
+  }
+}
+
+function inferArtifactType(agentName: string) {
+  if (agentName === "board_report") return "board_report"
+  return "deliverable"
+}
+
+function inferArtifactFormat(agentName: string): ArtifactFormat {
+  if (agentName === "board_report") return "markdown"
+  return "text"
 }
 
 function getChildSession(input: {

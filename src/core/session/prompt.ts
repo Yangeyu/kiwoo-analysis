@@ -169,6 +169,10 @@ function decideNextAction(context: LoopContext, state: LoopState, result: Awaite
     return { kind: "break" }
   }
 
+  if (latestAssistant?.artifact?.deliveryMode === "passthrough") {
+    return { kind: "break" }
+  }
+
   if (result === "compact") {
     const session = context.session_store.get(context.sessionID)
     SessionCompaction.process({

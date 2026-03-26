@@ -15,6 +15,7 @@ import { toToolExecutionErrorInfo, validateToolArgs } from "@/core/tool/tool"
 import {
   createID,
   type AgentInfo,
+  type Artifact,
   type AssistantMessage,
   type ErrorInfo,
   type ProcessorResult,
@@ -234,6 +235,10 @@ function appendReasoning(context: ProcessorContext, textDelta: string) {
 }
 
 function appendText(context: ProcessorContext, textDelta: string) {
+  appendAssistantText(context, textDelta)
+}
+
+function appendAssistantText(context: ProcessorContext, textDelta: string, options?: { synthetic?: boolean }) {
   if (!context.sawText) {
     context.sawText = true
     transitionTurn(context, "responding")
@@ -252,6 +257,7 @@ function appendText(context: ProcessorContext, textDelta: string) {
       id: createID(),
       type: "text",
       text: "",
+      synthetic: options?.synthetic,
     })
   }
   const currentPart = context.textPart
@@ -507,6 +513,14 @@ function createToolContext(context: ProcessorContext, part: ToolPart): ToolConte
       context.assistant = context.session_store.updateMessage(context.session.id, context.assistant.id, {
         structured: output,
       })
+    },
+    async captureArtifact(artifact: Artifact) {
+      context.assistant = context.session_store.updateMessage(context.session.id, context.assistant.id, {
+        artifact,
+      })
+
+      if (!artifact.body.trim()) return
+      appendAssistantText(context, artifact.body, { synthetic: true })
     },
   }
 }

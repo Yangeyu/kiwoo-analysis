@@ -42,6 +42,20 @@ export type OutputFormat =
       schema: Record<string, unknown>
     }
 
+export type DelegationIntent = "investigate" | "draft" | "deliver"
+
+export type ArtifactDeliveryMode = "summarize" | "rewrite" | "passthrough"
+
+export type ArtifactFormat = "markdown" | "text" | "json"
+
+export type Artifact = {
+  type: string
+  format: ArtifactFormat
+  title?: string
+  body: string
+  deliveryMode: ArtifactDeliveryMode
+}
+
 export type AgentInfo = {
   name: string
   mode: "primary" | "subagent"
@@ -120,6 +134,7 @@ export type ToolContext = RuntimeDeps & {
   extra?: JsonObject
   metadata(input: { title?: string; metadata?: ToolMetadata }): Promise<void>
   captureStructuredOutput(output: unknown): Promise<void>
+  captureArtifact(artifact: Artifact): Promise<void>
 }
 
 export type ToolDefinition<TArgs = unknown> = {
@@ -158,6 +173,7 @@ export type AssistantMessage = {
   finish?: FinishReason
   error?: ErrorInfo
   structured?: unknown
+  artifact?: Artifact
   time: TimeInfo
 }
 
