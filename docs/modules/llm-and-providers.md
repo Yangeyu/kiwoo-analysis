@@ -73,7 +73,9 @@ session 层不需要知道当前是 fake 还是 qwen，只消费统一的 `LLMCh
 `src/core/llm/providers/fake.ts` 主要用于 smoke 与本地回归：
 
 - 可模拟 subagent task
+- 可模拟 invalid tool args
 - 可模拟 batch 工具并行
+- 可模拟 nested batch
 - 可模拟 structured output
 - 可模拟 compaction
 - 可直接返回文本答案

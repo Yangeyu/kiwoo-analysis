@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process"
 import path from "node:path"
-import type { ToolDefinition } from "@/core/types"
+import { defineTool } from "@/core/tool/tool"
 import { z } from "zod"
 
 export const BashParameters = z.object({
@@ -12,21 +12,24 @@ export const BashParameters = z.object({
 
 export type BashArgs = z.infer<typeof BashParameters>
 
-export const BashTool: ToolDefinition<BashArgs> = {
+export const BashTool = defineTool({
   id: "bash",
   description: "Run a shell command in the local workspace and return stdout, stderr, and exit status.",
   parameters: BashParameters,
-  async execute(args, ctx) {
+  beforeExecute({ args }) {
     const workdir = args.workdir ? path.resolve(process.cwd(), args.workdir) : process.cwd()
     const timeout = args.timeout ?? 120000
-
-    await ctx.metadata({
+    return {
       title: args.description ?? `bash: ${args.command}`,
       metadata: {
         workdir,
         timeout,
       },
-    })
+    }
+  },
+  async execute(args, ctx) {
+    const workdir = args.workdir ? path.resolve(process.cwd(), args.workdir) : process.cwd()
+    const timeout = args.timeout ?? 120000
 
     const result = await runCommand({
       command: args.command,
@@ -45,7 +48,7 @@ export const BashTool: ToolDefinition<BashArgs> = {
       },
     }
   },
-}
+})
 
 async function runCommand(input: {
   command: string

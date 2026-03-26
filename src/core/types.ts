@@ -7,6 +7,8 @@ export type FinishReason = "stop" | "tool-calls" | "length" | "error"
 
 export type ProcessorResult = "continue" | "stop" | "compact"
 
+export type JsonObject = Record<string, unknown>
+
 export type ProviderModel = {
   providerID: string
   modelID: string
@@ -16,6 +18,14 @@ export type ErrorInfo = {
   message: string
   retryable?: boolean
   code?: string
+}
+
+export type ToolMetadata = JsonObject
+
+export type ToolAttachment = {
+  mime: string
+  url: string
+  filename?: string
 }
 
 export type TimeInfo = {
@@ -44,7 +54,13 @@ export type AgentInfo = {
 export type ToolExecuteResult = {
   title?: string
   output: string
-  metadata?: unknown
+  metadata?: ToolMetadata
+  attachments?: ToolAttachment[]
+}
+
+export type SessionHistoryMessage = {
+  info: SessionMessage
+  parts: MessagePart[]
 }
 
 export type ToolContext = RuntimeDeps & {
@@ -52,8 +68,11 @@ export type ToolContext = RuntimeDeps & {
   messageID: string
   agent: string
   abort: AbortSignal
+  callID?: string
   format?: OutputFormat
-  metadata(input: { title?: string; metadata?: unknown }): Promise<void>
+  messages: SessionHistoryMessage[]
+  extra?: JsonObject
+  metadata(input: { title?: string; metadata?: ToolMetadata }): Promise<void>
   captureStructuredOutput(output: unknown): Promise<void>
 }
 
@@ -125,33 +144,34 @@ export type ToolPart = {
       status: "pending" | "running"
         input: unknown
         title?: string
-        metadata?: unknown
+        metadata?: ToolMetadata
         time?: {
           start: number
         }
       }
-    | {
-        status: "completed"
-        input: unknown
-        output: string
-        title?: string
-        metadata?: unknown
-        time?: {
-          start: number
-          end: number
+      | {
+          status: "completed"
+          input: unknown
+          output: string
+          title?: string
+          metadata?: ToolMetadata
+          attachments?: ToolAttachment[]
+          time?: {
+            start: number
+            end: number
+          }
         }
-      }
-    | {
-        status: "error"
-        input: unknown
-        error: ErrorInfo
-        title?: string
-        metadata?: unknown
-        time?: {
-          start: number
-          end: number
+      | {
+          status: "error"
+          input: unknown
+          error: ErrorInfo
+          title?: string
+          metadata?: ToolMetadata
+          time?: {
+            start: number
+            end: number
+          }
         }
-      }
 }
 
 export type MessagePart = TextPart | ReasoningPart | CompactionPart | ToolPart

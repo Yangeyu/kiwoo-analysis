@@ -10,6 +10,7 @@
     "tui": "bun run src/index.ts --tui",
     "check": "bunx tsc --noEmit",
     "smoke:text": "LLM_MODE=fake bun run src/index.ts \"Explain the current repo briefly\"",
+    "smoke:harness": "bun run scripts/smoke-harness.ts",
     "smoke:tui": "python3 -c \"import subprocess,sys;\ntry:\n    subprocess.run(['script','-q','/dev/null','bun','run','src/index.ts','--tui'], timeout=1, check=False)\nexcept subprocess.TimeoutExpired:\n    sys.exit(0)\nsys.exit(0)\""
   },
   "dependencies": {

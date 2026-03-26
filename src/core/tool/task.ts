@@ -1,5 +1,7 @@
 import { SessionPrompt } from "@/core/session/prompt"
-import type { AssistantMessage, ToolDefinition } from "@/core/types"
+import type { ISessionStore } from "@/core/session/store"
+import { defineTool } from "@/core/tool/tool"
+import type { AssistantMessage, ProviderModel, ToolDefinition } from "@/core/types"
 import { z } from "zod"
 
 export const TaskParameters = z
@@ -12,30 +14,70 @@ export const TaskParameters = z
 
 export type TaskArgs = z.infer<typeof TaskParameters>
 
-export const TaskTool: ToolDefinition<TaskArgs> = {
+export const TaskTool: ToolDefinition<TaskArgs> = defineTool({
   id: "task",
   description: "Run a subagent in a child session",
   parameters: TaskParameters,
+  beforeExecute({ args }) {
+    return {
+      title: args.description,
+      metadata: {
+        subagent: args.subagent_type,
+        resume: Boolean(args.task_id),
+      },
+    }
+  },
+  mapError({ error, toolID }) {
+    const message = error instanceof Error ? error.message : String(error)
+    if (message.includes("does not belong to session")) {
+      return {
+        message: `The ${toolID} tool failed: ${message}`,
+        retryable: false,
+        code: "task_invalid_resume",
+      }
+    }
+
+    if (message.includes("not available for task delegation")) {
+      return {
+        message: `The ${toolID} tool failed: ${message}`,
+        retryable: false,
+        code: "task_invalid_delegate",
+      }
+    }
+
+    return {
+      message: `The ${toolID} tool failed: ${message}`,
+      retryable: false,
+      code: "tool_execution_failed",
+    }
+  },
+  normalizeMetadata({ metadata, ctx }) {
+    return {
+      ...(metadata ?? {}),
+      parentSessionID: ctx.sessionID,
+    }
+  },
   async execute(args, ctx) {
-    const agent = ctx.agent_registry.agents.get(args.subagent_type)
-    if (!agent) {
-      throw new Error(`Unknown agent type: ${args.subagent_type}`)
+    const agent = ctx.agent_registry.get(args.subagent_type)
+    if (agent.mode !== "subagent") {
+      throw new Error(`Agent ${args.subagent_type} is not available for task delegation`)
     }
 
     const store = ctx.session_store
-
-    const child =
-      args.task_id && store.list().some((s) => s.id === args.task_id)
-        ? store.get(args.task_id)
-        : store.create({
-            parentID: ctx.sessionID,
-            title: `${args.description} (@${agent.name} subagent)`,
-          })
+    const model = resolveParentModel(ctx.extra?.model)
+    const child = resolveChildSession({
+      taskID: args.task_id,
+      parentSessionID: ctx.sessionID,
+      description: args.description,
+      agentName: agent.name,
+      store,
+    })
 
     await SessionPrompt.prompt({
       sessionID: child.id,
       text: args.prompt,
       agent: agent.name,
+      model,
       format: ctx.format,
     }, {
       agent_registry: ctx.agent_registry,
@@ -70,4 +112,38 @@ export const TaskTool: ToolDefinition<TaskArgs> = {
       },
     }
   },
+})
+
+function resolveChildSession(input: {
+  taskID?: string
+  parentSessionID: string
+  description: string
+  agentName: string
+  store: ISessionStore
+}) {
+  if (input.taskID) {
+    const session = input.store.get(input.taskID)
+    if (session.parentID !== input.parentSessionID) {
+      throw new Error(`Task ${input.taskID} does not belong to session ${input.parentSessionID}`)
+    }
+    return session
+  }
+
+  return input.store.create({
+    parentID: input.parentSessionID,
+    title: `${input.description} (@${input.agentName} subagent)`,
+  })
+}
+
+function resolveParentModel(value: unknown): ProviderModel | undefined {
+  if (!value || typeof value !== "object") return undefined
+
+  const providerID = "providerID" in value ? value.providerID : undefined
+  const modelID = "modelID" in value ? value.modelID : undefined
+  if (typeof providerID !== "string" || typeof modelID !== "string") return undefined
+
+  return {
+    providerID,
+    modelID,
+  }
 }

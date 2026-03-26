@@ -15,6 +15,7 @@
 - `src/core/tool/bash.ts`
 - `src/core/tool/batch.ts`
 - `src/core/tool/task.ts`
+- `src/core/tool/tool.ts`
 - `src/core/module.ts`
 
 ## Agent 体系
@@ -50,6 +51,41 @@
 
 `src/core/tool/registry.ts` 定义 tool registry 工厂；实际 registry 实例由 `RuntimeContext.tool_registry` 持有，并根据 agent 的 `tools` 开关筛选当前 step 可用工具。
 
+## Tool Harness
+
+`src/core/tool/tool.ts` 提供 `defineTool()`，作为 core tool harness 的统一入口。
+
+当前一个 tool 的标准执行顺序是：
+
+- 参数校验
+- `beforeExecute`
+- `execute`
+- `afterExecute`
+- output / metadata 归一化
+- 结果写回 session tool part
+
+`defineTool()` 当前统一处理：
+
+- 参数校验错误包装
+- 执行期错误归一化（`mapError`）
+- 执行前 metadata 预写入（`beforeExecute`）
+- 执行后结果修整（`afterExecute`）
+- metadata 归一化（`normalizeMetadata`）
+- 可选 output 截断（`truncateOutput`，默认关闭）
+
+各 hook 的职责建议：
+
+- `beforeExecute`
+  - 写入标题、路径、workdir、timeout、delegate 目标等“执行前就已知”的元信息
+- `execute`
+  - 只负责真正做事并返回结果
+- `afterExecute`
+  - 基于执行结果补充 title、metadata、output、attachments
+- `mapError`
+  - 把具体 tool 的失败原因映射为稳定的 `ErrorInfo.code`
+- `normalizeMetadata`
+  - 统一整理 metadata 结构，避免每个 tool 自己手工拼装最终形态
+
 ## 关键工具职责
 
 - `basic.ts`
@@ -70,6 +106,7 @@
 - agent/tool registry 属于运行时依赖，应由入口层从 `RuntimeContext` 装配，再通过 `RuntimeDeps` / `ToolContext` 往执行链传递，而不是依赖模块级全局表。
 - tool 执行链优先通过 `ToolContext` / `RuntimeDeps` 显式拿到 `agent_registry`、`tool_registry`、`session_store`。
 - tool 的 schema、描述、执行逻辑尽量放在一起。
+- tool 的横切逻辑优先放到 `defineTool()` 的 hook 和归一化阶段，而不是散落在每个 `execute()` 中。
 - tool 结果若需要在后续轮次被模型感知，必须写回 session part。
 - `task` 是最重要的编排原语，因为它把多 agent 协作落成了递归 session。
 

@@ -144,6 +144,7 @@ Useful smoke checks:
 bun run check
 bun run build
 bun run smoke:text
+bun run smoke:harness
 bun run smoke:tui
 ```
 
@@ -153,4 +154,4 @@ bun run smoke:tui
 - The renderer borrows from OpenCode's CLI presentation approach, but stays compact and event-driven around this repo's own runtime events.
 - The renderer is intentionally mode-based: `stream` prints model output deltas in real time, while `buffered` prints complete reasoning/final blocks after each turn.
 - `TaskTool` creates a child session and recursively re-enters `SessionPrompt.prompt()`, which mirrors the core orchestration pattern in `opencode`.
-- In fake mode the demo still exercises subagents, batched tools, structured output capture, and compaction.
+- In fake mode the demo still exercises subagents, invalid tool args, nested batched tools, structured output capture, and compaction.

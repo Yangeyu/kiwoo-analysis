@@ -1,6 +1,6 @@
 import fs from "node:fs/promises"
 import path from "node:path"
-import type { ToolDefinition } from "@/core/types"
+import { defineTool } from "@/core/tool/tool"
 import { z } from "zod"
 
 export const ReadParameters = z.object({
@@ -15,10 +15,19 @@ export const GrepParameters = z.object({
 
 export type GrepArgs = z.infer<typeof GrepParameters>
 
-export const ReadTool: ToolDefinition<ReadArgs> = {
+export const ReadTool = defineTool({
   id: "read",
   description: "Read a file",
   parameters: ReadParameters,
+  beforeExecute({ args }) {
+    const target = path.resolve(process.cwd(), args.filePath)
+    return {
+      title: `read: ${args.filePath}`,
+      metadata: {
+        filePath: target,
+      },
+    }
+  },
   async execute(args) {
     const target = path.resolve(process.cwd(), args.filePath)
     const content = await fs.readFile(target, "utf8")
@@ -26,12 +35,22 @@ export const ReadTool: ToolDefinition<ReadArgs> = {
       output: content,
     }
   },
-}
+})
 
-export const GrepTool: ToolDefinition<GrepArgs> = {
+export const GrepTool = defineTool({
   id: "grep",
   description: "Search code",
   parameters: GrepParameters,
+  beforeExecute({ args }) {
+    const root = path.resolve(process.cwd(), "src")
+    return {
+      title: `grep: ${args.pattern}`,
+      metadata: {
+        pattern: args.pattern,
+        root,
+      },
+    }
+  },
   async execute(args) {
     const root = path.resolve(process.cwd(), "src")
     const entries = await fs.readdir(root, { recursive: true, withFileTypes: true })
@@ -57,4 +76,4 @@ export const GrepTool: ToolDefinition<GrepArgs> = {
       output: matches.length ? matches.join("\n") : `No matches for ${args.pattern}`,
     }
   },
-}
+})

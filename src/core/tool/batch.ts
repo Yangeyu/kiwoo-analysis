@@ -1,4 +1,4 @@
-import type { ToolDefinition } from "@/core/types"
+import { defineTool } from "@/core/tool/tool"
 import { z } from "zod"
 
 export const BatchParameters = z.object({
@@ -14,11 +14,20 @@ export const BatchParameters = z.object({
 
 export type BatchArgs = z.infer<typeof BatchParameters>
 
-export const BatchTool: ToolDefinition<BatchArgs> = {
+export const BatchTool = defineTool({
   id: "batch",
   description: "Run tools in parallel",
   parameters: BatchParameters,
+  beforeExecute({ args }) {
+    return {
+      title: "Batch execution",
+      metadata: {
+        count: args.tool_calls.length,
+      },
+    }
+  },
   async execute(args, ctx) {
+
     const results = await Promise.all(
       args.tool_calls.map(async (call) => {
         const tool = ctx.tool_registry.getTyped<unknown>(call.tool)
@@ -38,4 +47,4 @@ export const BatchTool: ToolDefinition<BatchArgs> = {
       },
     }
   },
-}
+})
