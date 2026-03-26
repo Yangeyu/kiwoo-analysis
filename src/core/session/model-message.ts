@@ -105,7 +105,25 @@ function buildAssistantContent(message: AssistantMessage, parts: MessagePart[]):
 }
 
 function toToolResultMessage(part: ToolPart): ModelMessage | undefined {
-  if (part.state.status !== "completed") return undefined
+  if (part.state.status === "completed") {
+    return {
+      role: "tool",
+      toolCallId: part.callID,
+      toolName: part.tool,
+      input: part.state.input,
+      content: [
+        {
+          type: "tool-output",
+          output: part.state.output,
+          title: part.state.title,
+          metadata: part.state.metadata,
+        },
+      ],
+    }
+  }
+
+  if (part.state.status !== "error") return undefined
+
   return {
     role: "tool",
     toolCallId: part.callID,
@@ -113,10 +131,10 @@ function toToolResultMessage(part: ToolPart): ModelMessage | undefined {
     input: part.state.input,
     content: [
       {
-        type: "tool-output",
-        output: part.state.output,
-        title: part.state.title,
-        metadata: part.state.metadata,
+        type: "tool-error",
+        toolName: part.tool,
+        input: part.state.input,
+        error: part.state.error.message,
       },
     ],
   }

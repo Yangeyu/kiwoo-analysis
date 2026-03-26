@@ -1,6 +1,4 @@
-import { AgentRegistry } from "@/core/agent/registry"
 import { SessionPrompt } from "@/core/session/prompt"
-import { SessionStore } from "@/core/session/store"
 import type { AssistantMessage, ToolDefinition } from "@/core/types"
 import { z } from "zod"
 
@@ -11,15 +9,6 @@ export const TaskParameters = z
     subagent_type: z.string().trim().min(1),
     task_id: z.string().trim().min(1).optional(),
   })
-  .superRefine((value, issue) => {
-    if (!AgentRegistry.agents.has(value.subagent_type)) {
-      issue.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: `Unknown agent type: ${value.subagent_type}`,
-        path: ["subagent_type"],
-      })
-    }
-  })
 
 export type TaskArgs = z.infer<typeof TaskParameters>
 
@@ -28,12 +17,17 @@ export const TaskTool: ToolDefinition<TaskArgs> = {
   description: "Run a subagent in a child session",
   parameters: TaskParameters,
   async execute(args, ctx) {
-    const agent = AgentRegistry.get(args.subagent_type)
+    const agent = ctx.agent_registry.agents.get(args.subagent_type)
+    if (!agent) {
+      throw new Error(`Unknown agent type: ${args.subagent_type}`)
+    }
+
+    const store = ctx.session_store
 
     const child =
-      args.task_id && SessionStore.list().some((s) => s.id === args.task_id)
-        ? SessionStore.get(args.task_id)
-        : SessionStore.create({
+      args.task_id && store.list().some((s) => s.id === args.task_id)
+        ? store.get(args.task_id)
+        : store.create({
             parentID: ctx.sessionID,
             title: `${args.description} (@${agent.name} subagent)`,
           })
@@ -43,13 +37,17 @@ export const TaskTool: ToolDefinition<TaskArgs> = {
       text: args.prompt,
       agent: agent.name,
       format: ctx.format,
+    }, {
+      agent_registry: ctx.agent_registry,
+      session_store: ctx.session_store,
+      tool_registry: ctx.tool_registry,
     })
 
     const lastAssistant = [...child.messages].reverse().find((message) => message.role === "assistant") as
       | AssistantMessage
       | undefined
-    const finalText = lastAssistant ? SessionStore.getMessageText(child.id, lastAssistant.id, { includeSynthetic: false }).trim() : ""
-    const synthesizedText = lastAssistant ? SessionStore.getMessageText(child.id, lastAssistant.id).trim() : ""
+    const finalText = lastAssistant ? store.getMessageText(child.id, lastAssistant.id, { includeSynthetic: false }).trim() : ""
+    const synthesizedText = lastAssistant ? store.getMessageText(child.id, lastAssistant.id).trim() : ""
     const structuredText =
       lastAssistant?.structured !== undefined
         ? JSON.stringify(lastAssistant.structured, null, 2)

@@ -26,6 +26,15 @@ function renderTaggedTextBlock(block: ModelContentBlock) {
       .filter(Boolean)
       .join("\n")
   }
+  if (block.type === "tool-error") {
+    return [
+      "<tool-error>",
+      `<tool>${block.toolName}</tool>`,
+      `<input>${serializeUnknown(block.input)}</input>`,
+      `<error>${block.error}</error>`,
+      "</tool-error>",
+    ].join("\n")
+  }
   return `error: ${block.text}`
 }
 

@@ -1,6 +1,9 @@
+import { getConfig } from "@/core/config"
 import { LLM, type LLMChunk, type ModelMessage } from "@/core/llm/index"
 import { RuntimeEvents } from "@/core/runtime/events"
-import { SessionStore } from "@/core/session/store"
+import type { AgentRegistry } from "@/core/agent/registry"
+import type { ISessionStore } from "@/core/session/store"
+import type { ToolRegistry } from "@/core/tool/registry"
 import {
   createID,
   type AgentInfo,
@@ -26,6 +29,8 @@ import {
 } from "@/core/session/retry"
 
 type ProcessorInput = {
+  agent_registry: AgentRegistry
+  session_store: ISessionStore
   session: SessionInfo
   user: UserMessage
   assistant: AssistantMessage
@@ -33,6 +38,7 @@ type ProcessorInput = {
   system: string[]
   messages: ModelMessage[]
   tools: ToolDefinition[]
+  tool_registry: ToolRegistry
   abort: AbortSignal
 }
 
@@ -48,6 +54,11 @@ type ProcessorContext = ProcessorInput & {
   recentToolCalls: Array<{
     toolName: string
     args: unknown
+  }>
+  recentToolFailures: Array<{
+    toolName: string
+    input: unknown
+    error: string
   }>
 }
 
@@ -74,6 +85,7 @@ export namespace SessionProcessor {
       sawReasoning: false,
       sawText: false,
       recentToolCalls: [],
+      recentToolFailures: [],
     }
     let sawToolCall = false
 
@@ -196,7 +208,7 @@ function appendReasoning(context: ProcessorContext, textDelta: string) {
 
   if (!context.reasoningPart) {
     context.textPart = undefined
-    context.reasoningPart = SessionStore.appendReasoningPart(context.session.id, context.assistant.id, {
+    context.reasoningPart = context.session_store.appendReasoningPart(context.session.id, context.assistant.id, {
       id: createID(),
       type: "reasoning",
       text: "",
@@ -206,7 +218,7 @@ function appendReasoning(context: ProcessorContext, textDelta: string) {
   const currentPart = context.reasoningPart
   if (!currentPart) return
   const nextText = currentPart.text + textDelta
-  context.reasoningPart = SessionStore.updatePart(context.session.id, context.assistant.id, currentPart.id, {
+  context.reasoningPart = context.session_store.updatePart(context.session.id, context.assistant.id, currentPart.id, {
     text: nextText,
   }) as ReasoningPart
 }
@@ -226,7 +238,7 @@ function appendText(context: ProcessorContext, textDelta: string) {
 
   context.reasoningPart = undefined
   if (!context.textPart) {
-    context.textPart = SessionStore.appendTextPart(context.session.id, context.assistant.id, {
+    context.textPart = context.session_store.appendTextPart(context.session.id, context.assistant.id, {
       id: createID(),
       type: "text",
       text: "",
@@ -235,14 +247,14 @@ function appendText(context: ProcessorContext, textDelta: string) {
   const currentPart = context.textPart
   if (!currentPart) return
   const nextText = currentPart.text + textDelta
-  context.textPart = SessionStore.updatePart(context.session.id, context.assistant.id, currentPart.id, {
+  context.textPart = context.session_store.updatePart(context.session.id, context.assistant.id, currentPart.id, {
     text: nextText,
   }) as TextPart
 }
 
 function finishAssistant(context: ProcessorContext, finishReason: AssistantMessage["finish"]) {
   transitionTurn(context, "finishing")
-  context.assistant = SessionStore.updateMessage(context.session.id, context.assistant.id, {
+  context.assistant = context.session_store.updateMessage(context.session.id, context.assistant.id, {
     finish: finishReason,
     time: {
       ...context.assistant.time,
@@ -268,7 +280,7 @@ function finishAssistant(context: ProcessorContext, finishReason: AssistantMessa
 
 function failAssistant(context: ProcessorContext, error: ErrorInfo) {
   transitionTurn(context, "finishing")
-  context.assistant = SessionStore.updateMessage(context.session.id, context.assistant.id, {
+  context.assistant = context.session_store.updateMessage(context.session.id, context.assistant.id, {
     error,
     finish: "error",
     time: {
@@ -317,35 +329,72 @@ async function executeToolCall(
   context.reasoningPart = undefined
   context.textPart = undefined
 
+  const part = context.session_store.startToolPart(context.session.id, context.assistant.id, {
+    id: createID(),
+    type: "tool",
+    tool: chunk.toolName,
+    callID: chunk.toolCallId,
+    state: {
+      status: "running",
+      input: chunk.args,
+      time: {
+        start: Date.now(),
+      },
+    },
+  })
+
   const tool = context.tools.find((item) => item.id === chunk.toolName)
   if (!tool) {
-    failAssistant(context, {
+    markToolPartError(context, part, chunk.args, {
       message: `Tool not available: ${chunk.toolName}`,
       retryable: false,
       code: "tool_not_available",
     })
-    return { kind: "stop" }
+    if (shouldStopForRepeatedToolFailures(context)) {
+      stopForRepeatedToolFailures(context, chunk.toolName)
+      return { kind: "stop" }
+    }
+    return { kind: "continue" }
   }
 
   const parsedArgs = tool.parameters.safeParse(chunk.args)
   if (!parsedArgs.success) {
-    failAssistant(context, {
+    markToolPartError(context, part, chunk.args, {
       message: `Invalid arguments for tool ${chunk.toolName}: ${parsedArgs.error.message}`,
       retryable: false,
       code: "tool_invalid_args",
     })
-    return { kind: "stop" }
+    if (shouldStopForRepeatedToolFailures(context)) {
+      stopForRepeatedToolFailures(context, chunk.toolName)
+      return { kind: "stop" }
+    }
+    return { kind: "continue" }
   }
 
   const validatedArgs = parsedArgs.data
 
+  context.session_store.updatePart(context.session.id, context.assistant.id, part.id, {
+    state: {
+      status: "running",
+      input: validatedArgs,
+      time: {
+        start: part.state.time?.start ?? Date.now(),
+      },
+    },
+  })
+
   if (isDoomLoop(context.recentToolCalls, chunk.toolName, validatedArgs)) {
+    markToolPartError(context, part, validatedArgs, {
+      message: `Potential doom loop detected for tool ${chunk.toolName}`,
+      retryable: false,
+      code: "doom_loop",
+    })
     failAssistant(context, {
       message: `Potential doom loop detected for tool ${chunk.toolName}`,
       retryable: false,
       code: "doom_loop",
     })
-    SessionStore.appendTextPart(context.session.id, context.assistant.id, {
+    context.session_store.appendTextPart(context.session.id, context.assistant.id, {
       id: createID(),
       type: "text",
       text: "\n\n[Stopped: repeated identical tool calls detected]",
@@ -359,20 +408,6 @@ async function executeToolCall(
     args: validatedArgs,
   })
 
-  const part = SessionStore.startToolPart(context.session.id, context.assistant.id, {
-    id: createID(),
-    type: "tool",
-    tool: chunk.toolName,
-    callID: chunk.toolCallId,
-    state: {
-      status: "running",
-      input: validatedArgs,
-      time: {
-        start: Date.now(),
-      },
-    },
-  })
-
   try {
     const toolResult = await tool.execute(validatedArgs, {
       sessionID: context.session.id,
@@ -380,8 +415,11 @@ async function executeToolCall(
       agent: context.agent.name,
       abort: context.abort,
       format: context.user.format,
+      session_store: context.session_store,
+      agent_registry: context.agent_registry,
+      tool_registry: context.tool_registry,
       async metadata(metadataUpdate) {
-        SessionStore.updatePart(context.session.id, context.assistant.id, part.id, {
+        context.session_store.updatePart(context.session.id, context.assistant.id, part.id, {
           state: {
             ...part.state,
             title: metadataUpdate.title,
@@ -396,13 +434,13 @@ async function executeToolCall(
           agent: context.agent.name,
           output,
         })
-        context.assistant = SessionStore.updateMessage(context.session.id, context.assistant.id, {
+        context.assistant = context.session_store.updateMessage(context.session.id, context.assistant.id, {
           structured: output,
         })
       },
     })
 
-    SessionStore.updatePart(context.session.id, context.assistant.id, part.id, {
+    context.session_store.updatePart(context.session.id, context.assistant.id, part.id, {
       state: {
         status: "completed",
         input: validatedArgs,
@@ -424,10 +462,12 @@ async function executeToolCall(
       output: toolResult.output,
     })
 
+    context.recentToolFailures = []
+
     return { kind: "continue" }
   } catch (error) {
     if (isAbortError(error)) {
-      SessionStore.updatePart(context.session.id, context.assistant.id, part.id, {
+      context.session_store.updatePart(context.session.id, context.assistant.id, part.id, {
         state: {
           status: "error",
           input: validatedArgs,
@@ -456,32 +496,73 @@ async function executeToolCall(
     }
 
     const message = error instanceof Error ? error.message : String(error)
-    SessionStore.updatePart(context.session.id, context.assistant.id, part.id, {
-      state: {
-        status: "error",
-        input: validatedArgs,
-        error: {
-          message,
-          retryable: false,
-        },
-        title: part.state.title,
-        metadata: part.state.metadata,
-        time: {
-          start: part.state.time?.start ?? Date.now(),
-          end: Date.now(),
-        },
-      },
+    markToolPartError(context, part, validatedArgs, {
+      message,
+      retryable: false,
     })
-    RuntimeEvents.emit({
-      type: "tool-error",
-      sessionID: context.session.id,
-      agent: context.agent.name,
-      tool: chunk.toolName,
-      error: message,
-    })
-    failAssistant(context, { message, retryable: false })
-    return { kind: "stop" }
+    if (shouldStopForRepeatedToolFailures(context)) {
+      stopForRepeatedToolFailures(context, chunk.toolName)
+      return { kind: "stop" }
+    }
+    return { kind: "continue" }
   }
+}
+
+function markToolPartError(
+  context: ProcessorContext,
+  part: ToolPart,
+  input: unknown,
+  error: ErrorInfo,
+) {
+  context.recentToolFailures.push({
+    toolName: part.tool,
+    input,
+    error: error.message,
+  })
+  context.session_store.updatePart(context.session.id, context.assistant.id, part.id, {
+    state: {
+      status: "error",
+      input,
+      error,
+      title: part.state.title,
+      metadata: part.state.metadata,
+      time: {
+        start: part.state.time?.start ?? Date.now(),
+        end: Date.now(),
+      },
+    },
+  })
+  RuntimeEvents.emit({
+    type: "tool-error",
+    sessionID: context.session.id,
+    agent: context.agent.name,
+    tool: part.tool,
+    error: error.message,
+  })
+}
+
+function shouldStopForRepeatedToolFailures(context: ProcessorContext) {
+  const threshold = getConfig().repeated_tool_failure_threshold
+  const recentFailures = context.recentToolFailures.slice(-threshold)
+  if (recentFailures.length < threshold) return false
+
+  const [firstFailure, ...restFailures] = recentFailures
+  const signature = JSON.stringify(firstFailure)
+  return restFailures.every((failure) => JSON.stringify(failure) === signature)
+}
+
+function stopForRepeatedToolFailures(context: ProcessorContext, toolName: string) {
+  failAssistant(context, {
+    message: `Repeated identical tool failures detected for ${toolName}`,
+    retryable: false,
+    code: "repeated_tool_failure",
+  })
+  context.session_store.appendTextPart(context.session.id, context.assistant.id, {
+    id: createID(),
+    type: "text",
+    text: "\n\n[Stopped: repeated identical tool failures detected]",
+    synthetic: true,
+  })
 }
 
 function emitTurnStart(context: ProcessorContext) {
@@ -507,7 +588,7 @@ function transitionTurn(context: ProcessorContext, phase: TurnPhase) {
 }
 
 function abortAssistant(context: ProcessorContext) {
-  context.assistant = SessionStore.updateMessage(context.session.id, context.assistant.id, {
+  context.assistant = context.session_store.updateMessage(context.session.id, context.assistant.id, {
     error: {
       message: "Aborted",
       retryable: false,
@@ -529,8 +610,6 @@ function abortAssistant(context: ProcessorContext) {
 }
 
 function resolveTurnStep(context: ProcessorContext) {
-  const session = SessionStore.get(context.session.id)
+  const session = context.session_store.get(context.session.id)
   return session.messages.filter((message) => message.role === "assistant").length
 }
-
-

@@ -194,6 +194,18 @@ function mapQwenContentItem(part: ModelContentBlock): QwenContentItem {
       output: part.output,
     }
   }
+  if (part.type === "tool-error") {
+    return {
+      type: "error",
+      text: [
+        "<tool-error>",
+        `<tool>${part.toolName}</tool>`,
+        `<input>${serializeUnknown(part.input)}</input>`,
+        `<error>${part.error}</error>`,
+        "</tool-error>",
+      ].join("\n"),
+    }
+  }
   return { type: "error", text: part.text }
 }
 

@@ -1,4 +1,3 @@
-import { AgentRegistry } from "@/core/agent"
 import { attachConsoleLogger, type OutputMode } from "@/core/runtime/logger"
 import { bootstrapRuntime, runPrompt } from "@/core/runtime/bootstrap"
 import { startTui } from "@/tui/app"
@@ -44,9 +43,9 @@ function parseArgs(argv: string[]) {
 }
 
 async function main() {
-  bootstrapRuntime()
+  const runtime = bootstrapRuntime()
   const parsed = parseArgs(process.argv.slice(2))
-  const defaultAgent = AgentRegistry.defaultAgent().name
+  const defaultAgent = runtime.agent_registry.defaultAgent().name
   const canLaunchTui = process.stdin.isTTY && process.stdout.isTTY
 
   if (parsed.tui) {
@@ -54,6 +53,7 @@ async function main() {
       throw new Error("TUI requires an interactive terminal")
     }
     await startTui({
+      runtime,
       agent: parsed.agent ?? defaultAgent,
       initialPrompt: parsed.text || undefined,
       autoSubmitInitial: Boolean(parsed.text),
@@ -64,6 +64,7 @@ async function main() {
   if (!parsed.text) {
     if (canLaunchTui) {
       await startTui({
+        runtime,
         agent: parsed.agent ?? defaultAgent,
       })
       return
@@ -78,6 +79,7 @@ async function main() {
   const detach = attachConsoleLogger({ outputMode: parsed.outputMode })
   try {
     await runPrompt({
+      runtime,
       text: parsed.text,
       agent: parsed.agent ?? defaultAgent,
       printSessionJson: parsed.json,

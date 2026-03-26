@@ -1,27 +1,37 @@
 import type { AgentInfo, AnyToolDefinition, ToolDefinition } from "@/core/types"
 
-export const ToolRegistry = {
-  tools: new Map<string, AnyToolDefinition>(),
+export type ToolRegistry = {
+  tools: Map<string, AnyToolDefinition>
+  register(tool: AnyToolDefinition): void
+  get(id: string): AnyToolDefinition
+  getTyped<TArgs>(id: string): ToolDefinition<TArgs>
+  toolsForAgent(agent: AgentInfo): Promise<AnyToolDefinition[]>
+}
 
-  register(tool: AnyToolDefinition) {
-    this.tools.set(tool.id, tool)
-  },
+export function createToolRegistry(): ToolRegistry {
+  return {
+    tools: new Map<string, AnyToolDefinition>(),
 
-  get(id: string) {
-    const tool = this.tools.get(id)
-    if (!tool) throw new Error(`Unknown tool: ${id}`)
-    return tool
-  },
+    register(tool) {
+      this.tools.set(tool.id, tool)
+    },
 
-  getTyped<TArgs>(id: string): ToolDefinition<TArgs> {
-    return this.get(id) as ToolDefinition<TArgs>
-  },
+    get(id) {
+      const tool = this.tools.get(id)
+      if (!tool) throw new Error(`Unknown tool: ${id}`)
+      return tool
+    },
 
-  async toolsForAgent(agent: AgentInfo) {
-    const enabled = Object.entries(agent.tools || {})
-      .filter(([, value]) => value !== false)
-      .map(([name]) => name)
+    getTyped<TArgs>(id: string): ToolDefinition<TArgs> {
+      return this.get(id) as ToolDefinition<TArgs>
+    },
 
-    return enabled.map((name) => this.get(name))
-  },
+    async toolsForAgent(agent) {
+      const enabled = Object.entries(agent.tools || {})
+        .filter(([, value]) => value !== false)
+        .map(([name]) => name)
+
+      return enabled.map((name) => this.get(name))
+    },
+  }
 }

@@ -6,6 +6,7 @@ export type ModelContentBlock =
   | { type: "reasoning"; text: string }
   | { type: "structured-output"; data: unknown }
   | { type: "tool-output"; output: string; title?: string; metadata?: unknown }
+  | { type: "tool-error"; toolName: string; input: unknown; error: string }
   | { type: "context-summary"; text: string }
   | { type: "error"; text: string }
 

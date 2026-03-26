@@ -1,13 +1,13 @@
-import { AgentRegistry } from "@/core/agent"
 import { bootstrapRuntime, runPrompt } from "@/core/runtime/bootstrap"
+import type { RuntimeContext } from "@/core/runtime/context"
 import { RuntimeEvents, type RuntimeEvent } from "@/core/runtime/events"
-import { SessionStore } from "@/core/session/store"
 import type { SessionInfo } from "@/core/types"
 import { TextAttributes } from "@opentui/core"
 import { render, useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/solid"
 import { ErrorBoundary, For, Show, createEffect, createMemo, createSignal, onCleanup, onMount, type Setter } from "solid-js"
 
 type TuiOptions = {
+  runtime: RuntimeContext
   agent: string
   initialPrompt?: string
   autoSubmitInitial?: boolean
@@ -65,9 +65,11 @@ export async function startTui(options: TuiOptions) {
 }
 
 function App(props: TuiOptions) {
+  const runtime = props.runtime
+  const store = runtime.session_store
   const renderer = useRenderer()
   const term = useTerminalDimensions()
-  const [selectedAgent, setSelectedAgent] = createSignal(resolveInitialAgent(props.agent))
+  const [selectedAgent, setSelectedAgent] = createSignal(resolveInitialAgent(runtime.agent_registry, props.agent))
   const [currentSessionID, setCurrentSessionID] = createSignal<string | undefined>()
   const [draft, setDraft] = createSignal(props.autoSubmitInitial ? "" : props.initialPrompt ?? "")
   const [activity, setActivity] = createSignal<ActivityState>({
@@ -95,14 +97,14 @@ function App(props: TuiOptions) {
 
   const sessions = createMemo(() => {
     revision()
-    return SessionStore.list().slice().reverse()
+    return store.list().slice().reverse()
   })
 
   const session = () => {
     revision()
     const sessionID = currentSessionID()
     if (!sessionID) return undefined
-    const current = SessionStore.get(sessionID)
+    const current = store.get(sessionID)
     return {
       ...current,
       messages: [...current.messages],
@@ -112,11 +114,11 @@ function App(props: TuiOptions) {
 
   const visibleTranscript = () => {
     const rootSessionID = currentSessionID()
-    return traceEntries().filter((entry) => belongsToSessionTree(entry.sessionID, rootSessionID))
+    return traceEntries().filter((entry) => belongsToSessionTree(store, entry.sessionID, rootSessionID))
   }
 
   const createSession = (text?: string) => {
-    const next = SessionStore.create({ title: buildSessionTitle(text) })
+    const next = store.create({ title: buildSessionTitle(text) })
     setCurrentSessionID(next.id)
     refresh()
     return next
@@ -129,7 +131,7 @@ function App(props: TuiOptions) {
   }
 
   const cycleAgent = (delta: number) => {
-    const primary = AgentRegistry.list().filter((agent) => agent.mode === "primary")
+    const primary = runtime.agent_registry.list().filter((agent) => agent.mode === "primary")
     if (primary.length === 0) return
     const currentIndex = Math.max(primary.findIndex((agent) => agent.name === selectedAgent()), 0)
     const nextIndex = (currentIndex + delta + primary.length) % primary.length
@@ -153,6 +155,7 @@ function App(props: TuiOptions) {
 
     try {
       await runPrompt({
+        runtime,
         text,
         agent: selectedAgent(),
         sessionID: nextSession.id,
@@ -235,6 +238,7 @@ function App(props: TuiOptions) {
 
       handleTraceEvent(
         event,
+        store,
         sessionPaths,
         activeTurns,
         activeTools,
@@ -242,7 +246,7 @@ function App(props: TuiOptions) {
         setTraceEntries,
       )
 
-      if (belongsToSessionTree(event.sessionID, currentSessionID())) {
+      if (belongsToSessionTree(store, event.sessionID, currentSessionID())) {
         if (event.type === "turn-phase") {
           setActivity((current) => ({ ...current, phase: event.phase, status: `Phase ${event.phase}`, busy: true }))
         } else if (event.type === "tool-call") {
@@ -299,7 +303,7 @@ function App(props: TuiOptions) {
           >
             <Show when={visibleTranscript().length > 0} fallback={<WelcomeCard />}>
               <box flexDirection="column" gap={1}>
-                <For each={visibleTranscript()}>{(entry) => <TraceEntryBlock entry={entry} expanded={Boolean(entry.expanded)} onToggle={() => toggleExpanded(entry.id)} />}</For>
+                <For each={visibleTranscript()}>{(entry) => <TraceEntryBlock store={store} entry={entry} expanded={Boolean(entry.expanded)} onToggle={() => toggleExpanded(entry.id)} />}</For>
               </box>
             </Show>
           </scrollbox>
@@ -432,8 +436,13 @@ function ComposerCard(props: {
   )
 }
 
-function TraceEntryBlock(props: { entry: TraceEntry; expanded: boolean; onToggle: () => void }) {
-  const isTopLevelAnswer = props.entry.kind === "answer" && !SessionStore.get(props.entry.sessionID)?.parentID
+function TraceEntryBlock(props: {
+  store: RuntimeContext["session_store"]
+  entry: TraceEntry
+  expanded: boolean
+  onToggle: () => void
+}) {
+  const isTopLevelAnswer = props.entry.kind === "answer" && !props.store.get(props.entry.sessionID)?.parentID
   const collapsible = Boolean(props.entry.detail) && !isTopLevelAnswer && props.entry.kind !== "result"
   const body = collapsible && props.expanded ? props.entry.detail ?? props.entry.text : props.entry.text
 
@@ -510,11 +519,11 @@ function CrashView(props: { error: unknown; onReset: () => void }) {
   )
 }
 
-function resolveInitialAgent(agent: string) {
+function resolveInitialAgent(agentRegistry: RuntimeContext["agent_registry"], agent: string) {
   try {
-    return AgentRegistry.get(agent).name
+    return agentRegistry.get(agent).name
   } catch {
-    return AgentRegistry.defaultAgent().name
+    return agentRegistry.defaultAgent().name
   }
 }
 
@@ -577,14 +586,18 @@ function asRecord(value: unknown) {
   return value as Record<string, unknown>
 }
 
-function belongsToSessionTree(sessionID: string, rootSessionID: string | undefined) {
+function belongsToSessionTree(
+  store: RuntimeContext["session_store"],
+  sessionID: string,
+  rootSessionID: string | undefined,
+) {
   if (!rootSessionID) return true
 
   let current: string | undefined = sessionID
   while (current) {
     if (current === rootSessionID) return true
     try {
-      const session = SessionStore.get(current)
+      const session = store.get(current)
       current = session?.parentID
     } catch {
       break
@@ -596,6 +609,7 @@ function belongsToSessionTree(sessionID: string, rootSessionID: string | undefin
 
 function handleTraceEvent(
   event: RuntimeEvent,
+  store: RuntimeContext["session_store"],
   sessionPaths: Map<string, string[]>,
   activeTurns: Map<string, { messageID: string; agent: string; reasoningEntryID?: string; answerEntryID?: string }>,
   activeTools: Map<string, string[]>,
@@ -615,7 +629,7 @@ function handleTraceEvent(
     if (existing) return existing
 
     try {
-      const session = SessionStore.get(sessionID)
+      const session = store.get(sessionID)
       const parentPath = session?.parentID ? sessionPaths.get(session.parentID) ?? [] : []
       return fallbackAgent ? [...parentPath, fallbackAgent] : parentPath
     } catch {
@@ -644,7 +658,7 @@ function handleTraceEvent(
   if (event.type === "session-start") {
     let parentPath: string[] = []
     try {
-      const session = SessionStore.get(event.sessionID)
+      const session = store.get(event.sessionID)
       parentPath = session?.parentID ? sessionPaths.get(session.parentID) ?? [] : []
     } catch {}
     const path = [...parentPath, event.agent]

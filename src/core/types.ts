@@ -1,3 +1,4 @@
+import type { RuntimeDeps } from "@/core/runtime/context"
 import type { z } from "zod"
 
 export type Role = "user" | "assistant"
@@ -46,7 +47,7 @@ export type ToolExecuteResult = {
   metadata?: unknown
 }
 
-export type ToolContext = {
+export type ToolContext = RuntimeDeps & {
   sessionID: string
   messageID: string
   agent: string

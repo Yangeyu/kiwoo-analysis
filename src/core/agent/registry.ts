@@ -1,25 +1,35 @@
 import type { AgentInfo } from "@/core/types"
 
-export const AgentRegistry = {
-  agents: new Map<string, AgentInfo>(),
+export type AgentRegistry = {
+  agents: Map<string, AgentInfo>
+  register(agent: AgentInfo): void
+  get(name: string): AgentInfo
+  list(): AgentInfo[]
+  defaultAgent(): AgentInfo
+}
 
-  register(agent: AgentInfo) {
-    this.agents.set(agent.name, agent)
-  },
+export function createAgentRegistry(): AgentRegistry {
+  return {
+    agents: new Map<string, AgentInfo>(),
 
-  get(name: string) {
-    const agent = this.agents.get(name)
-    if (!agent) throw new Error(`Unknown agent: ${name}`)
-    return agent
-  },
+    register(agent) {
+      this.agents.set(agent.name, agent)
+    },
 
-  list() {
-    return [...this.agents.values()]
-  },
+    get(name) {
+      const agent = this.agents.get(name)
+      if (!agent) throw new Error(`Unknown agent: ${name}`)
+      return agent
+    },
 
-  defaultAgent() {
-    const primary = this.list().find((agent) => agent.mode === "primary")
-    if (!primary) throw new Error("No primary agent registered")
-    return primary
-  },
+    list() {
+      return [...this.agents.values()]
+    },
+
+    defaultAgent() {
+      const primary = this.list().find((agent) => agent.mode === "primary")
+      if (!primary) throw new Error("No primary agent registered")
+      return primary
+    },
+  }
 }

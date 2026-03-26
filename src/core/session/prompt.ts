@@ -1,11 +1,9 @@
-import { AgentRegistry } from "@/core/agent/registry"
+import type { RuntimeDeps } from "@/core/runtime/context"
 import { RuntimeEvents } from "@/core/runtime/events"
 import { toModelMessages } from "@/core/session/model-message"
 import { SessionCompaction } from "@/core/session/compaction"
 import { SessionProcessor } from "@/core/session/processor"
-import { SessionStore } from "@/core/session/store"
 import { buildSystemPrompt } from "@/core/session/system"
-import { ToolRegistry } from "@/core/tool/registry"
 import { createID, type AgentInfo, type AssistantMessage, type ProviderModel, type ToolDefinition, type UserMessage } from "@/core/types"
 import { z } from "zod"
 
@@ -20,7 +18,7 @@ type PromptInput = {
   abort?: AbortSignal
 }
 
-type LoopContext = {
+type LoopContext = RuntimeDeps & {
   sessionID: string
   abort: AbortSignal
   step: number
@@ -38,9 +36,10 @@ type LoopDecision =
   | { kind: "break" }
 
 export namespace SessionPrompt {
-  export async function prompt(input: PromptInput) {
-    const session = SessionStore.get(input.sessionID)
-    const agent = AgentRegistry.get(input.agent ?? "build")
+  export async function prompt(input: PromptInput, deps: RuntimeDeps) {
+    const store = deps.session_store
+    const session = store.get(input.sessionID)
+    const agent = deps.agent_registry.get(input.agent ?? "build")
     const user = createUserMessage({
       sessionID: session.id,
       agent,
@@ -48,22 +47,25 @@ export namespace SessionPrompt {
       format: input.format ?? agent.format,
     })
 
-    SessionStore.appendUserMessage(session.id, user)
-    SessionStore.appendTextPart(session.id, user.id, {
+    store.appendUserMessage(session.id, user)
+    store.appendTextPart(session.id, user.id, {
       id: createID(),
       type: "text",
       text: input.text,
     })
-    emitSessionStart(session.id, user)
+    emitSessionStart(store, session.id, user)
 
-    return loop({ sessionID: session.id, abort: input.abort })
+    return loop({ sessionID: session.id, abort: input.abort }, deps)
   }
 
-  export async function loop(input: { sessionID: string; abort?: AbortSignal }) {
+  export async function loop(input: { sessionID: string; abort?: AbortSignal }, deps: RuntimeDeps) {
     const context: LoopContext = {
+      agent_registry: deps.agent_registry,
+      session_store: deps.session_store,
       sessionID: input.sessionID,
       abort: input.abort ?? new AbortController().signal,
       step: 0,
+      tool_registry: deps.tool_registry,
     }
 
     while (true) {
@@ -74,7 +76,7 @@ export namespace SessionPrompt {
       const decision = decideNextAction(context, state, result)
 
       if (decision.kind === "break") {
-        return SessionStore.get(context.sessionID)
+        return context.session_store.get(context.sessionID)
       }
     }
   }
@@ -99,19 +101,19 @@ function createUserMessage(input: {
   }
 }
 
-function emitSessionStart(sessionID: string, user: UserMessage) {
+function emitSessionStart(store: RuntimeDeps["session_store"], sessionID: string, user: UserMessage) {
   RuntimeEvents.emit({
     type: "session-start",
     sessionID,
     agent: user.agent,
-    text: SessionStore.getMessageText(sessionID, user.id),
+    text: store.getMessageText(sessionID, user.id),
   })
 }
 
 async function prepareLoopState(context: LoopContext): Promise<LoopState> {
-  const session = SessionStore.get(context.sessionID)
-  const user = resolveLastUserMessage(session.id)
-  const agent = AgentRegistry.get(user.agent)
+  const session = context.session_store.get(context.sessionID)
+  const user = resolveLastUserMessage(context.session_store, session.id)
+  const agent = context.agent_registry.get(user.agent)
 
   RuntimeEvents.emit({
     type: "loop-step",
@@ -120,9 +122,9 @@ async function prepareLoopState(context: LoopContext): Promise<LoopState> {
     agent: agent.name,
   })
 
-  const tools = await resolveToolsForTurn(agent, user.format)
+  const tools = await resolveToolsForTurn(context.tool_registry, agent, user.format)
   const assistant = createAssistantMessage(session.id, user, agent)
-  SessionStore.appendAssistantMessage(session.id, assistant)
+  context.session_store.appendAssistantMessage(session.id, assistant)
 
   return {
     user,
@@ -133,9 +135,11 @@ async function prepareLoopState(context: LoopContext): Promise<LoopState> {
 }
 
 async function runLoopStep(context: LoopContext, state: LoopState) {
-  const session = SessionStore.get(context.sessionID)
+  const session = context.session_store.get(context.sessionID)
   const maxSteps = state.agent.steps ?? Number.POSITIVE_INFINITY
   return await SessionProcessor.process({
+    session_store: context.session_store,
+    agent_registry: context.agent_registry,
     session,
     user: state.user,
     assistant: state.assistant,
@@ -148,16 +152,17 @@ async function runLoopStep(context: LoopContext, state: LoopState) {
     }),
     messages: toModelMessages(session),
     tools: state.tools,
-      abort: context.abort,
+    tool_registry: context.tool_registry,
+    abort: context.abort,
     })
   }
 
 function decideNextAction(context: LoopContext, state: LoopState, result: Awaited<ReturnType<typeof SessionProcessor.process>>): LoopDecision {
-  const latestAssistant = SessionStore.get(context.sessionID).messages.find(
-    (message) => message.id === state.assistant.id,
+  const latestAssistant = context.session_store.get(context.sessionID).messages.find(
+    (message: { id: string }) => message.id === state.assistant.id,
   ) as AssistantMessage | undefined
   const hasFinalText = latestAssistant
-    ? SessionStore.getMessageText(context.sessionID, latestAssistant.id, { includeSynthetic: false }).trim().length > 0
+    ? context.session_store.getMessageText(context.sessionID, latestAssistant.id, { includeSynthetic: false }).trim().length > 0
     : false
 
   if (latestAssistant?.structured !== undefined) {
@@ -165,8 +170,9 @@ function decideNextAction(context: LoopContext, state: LoopState, result: Awaite
   }
 
   if (result === "compact") {
-    const session = SessionStore.get(context.sessionID)
+    const session = context.session_store.get(context.sessionID)
     SessionCompaction.process({
+      store: context.session_store,
       session,
       trigger: state.assistant,
       latestUser: state.user,
@@ -177,8 +183,8 @@ function decideNextAction(context: LoopContext, state: LoopState, result: Awaite
   if (result === "continue") {
     const maxSteps = state.agent.steps ?? Number.POSITIVE_INFINITY
     if (context.step >= maxSteps) {
-      SessionStore.updateMessage(context.sessionID, state.assistant.id, { finish: "stop" })
-      SessionStore.appendTextPart(context.sessionID, state.assistant.id, {
+      context.session_store.updateMessage(context.sessionID, state.assistant.id, { finish: "stop" })
+      context.session_store.appendTextPart(context.sessionID, state.assistant.id, {
         id: createID(),
         type: "text",
         text: "\n\n[Stopped: max steps reached]",
@@ -195,8 +201,8 @@ function decideNextAction(context: LoopContext, state: LoopState, result: Awaite
       return { kind: "continue" }
     }
 
-    SessionStore.updateMessage(context.sessionID, state.assistant.id, { finish: "stop" })
-    SessionStore.appendTextPart(context.sessionID, state.assistant.id, {
+    context.session_store.updateMessage(context.sessionID, state.assistant.id, { finish: "stop" })
+    context.session_store.appendTextPart(context.sessionID, state.assistant.id, {
       id: createID(),
       type: "text",
       text: "\n\n[Stopped: model ended without a final answer]",
@@ -208,8 +214,8 @@ function decideNextAction(context: LoopContext, state: LoopState, result: Awaite
   return { kind: "break" }
 }
 
-function resolveLastUserMessage(sessionID: string) {
-  const session = SessionStore.get(sessionID)
+function resolveLastUserMessage(store: RuntimeDeps["session_store"], sessionID: string) {
+  const session = store.get(sessionID)
   const user = [...session.messages].reverse().find((message) => message.role === "user")
   if (!user) throw new Error("No user message found")
   return user as UserMessage
@@ -228,8 +234,8 @@ function createAssistantMessage(sessionID: string, user: UserMessage, agent: Age
     },
   }
 }
-async function resolveToolsForTurn(agent: AgentInfo, format: UserMessage["format"]) {
-  const tools = [...(await ToolRegistry.toolsForAgent(agent))]
+async function resolveToolsForTurn(toolRegistry: RuntimeDeps["tool_registry"], agent: AgentInfo, format: UserMessage["format"]) {
+  const tools = [...(await toolRegistry.toolsForAgent(agent))]
 
   if (format?.type === "json_schema") {
     tools.push(createStructuredOutputTool(format.schema))

@@ -1,5 +1,5 @@
 import { RuntimeEvents } from "@/core/runtime/events"
-import { SessionStore } from "@/core/session/store"
+import type { ISessionStore } from "@/core/session/store"
 import { createID, type AssistantMessage, type SessionInfo, type UserMessage } from "@/core/types"
 
 export namespace SessionCompaction {
@@ -8,6 +8,7 @@ export namespace SessionCompaction {
   }
 
   export function process(input: {
+    store: ISessionStore
     session: SessionInfo
     trigger: AssistantMessage
     latestUser: UserMessage
@@ -15,7 +16,7 @@ export namespace SessionCompaction {
     const priorMessages = input.session.messages.filter((message) => message.id !== input.latestUser.id)
     const summary = priorMessages
       .map((message) => {
-        const text = SessionStore.getMessageText(input.session.id, message.id, { includeSynthetic: false }).trim()
+        const text = input.store.getMessageText(input.session.id, message.id, { includeSynthetic: false }).trim()
         if (message.role === "user") return `user: ${text}`
         return `assistant: ${text || (message.finish ?? "")}`
       })
@@ -34,7 +35,7 @@ export namespace SessionCompaction {
       summary,
     })
 
-    SessionStore.replaceState({
+    input.store.replaceState({
       sessionID: input.session.id,
       messages: [input.latestUser],
       parts: buildCompactedParts(input.session, compactionPart, input.latestUser.id),
