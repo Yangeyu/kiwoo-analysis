@@ -58,6 +58,52 @@ export type ToolExecuteResult = {
   attachments?: ToolAttachment[]
 }
 
+export type ToolRunningState = {
+  status: "pending" | "running"
+  input: unknown
+  title?: string
+  metadata?: ToolMetadata
+  time?: {
+    start: number
+  }
+}
+
+export type ToolCompletedState = {
+  status: "completed"
+  input: unknown
+  output: string
+  title?: string
+  metadata?: ToolMetadata
+  attachments?: ToolAttachment[]
+  time?: {
+    start: number
+    end: number
+  }
+}
+
+export type ToolErrorState = {
+  status: "error"
+  input: unknown
+  error: ErrorInfo
+  title?: string
+  metadata?: ToolMetadata
+  attachments?: ToolAttachment[]
+  time?: {
+    start: number
+    end: number
+  }
+}
+
+export type ToolState = ToolRunningState | ToolCompletedState | ToolErrorState
+
+export type ToolPart = {
+  id: string
+  type: "tool"
+  toolName: string
+  toolCallId: string
+  state: ToolState
+}
+
 export type SessionHistoryMessage = {
   info: SessionMessage
   parts: MessagePart[]
@@ -68,7 +114,7 @@ export type ToolContext = RuntimeDeps & {
   messageID: string
   agent: string
   abort: AbortSignal
-  callID?: string
+  toolCallId?: string
   format?: OutputFormat
   messages: SessionHistoryMessage[]
   extra?: JsonObject
@@ -132,46 +178,6 @@ export type CompactionPart = {
   id: string
   type: "compaction"
   summary: string
-}
-
-export type ToolPart = {
-  id: string
-  type: "tool"
-  tool: string
-  callID: string
-  state:
-    | {
-      status: "pending" | "running"
-        input: unknown
-        title?: string
-        metadata?: ToolMetadata
-        time?: {
-          start: number
-        }
-      }
-      | {
-          status: "completed"
-          input: unknown
-          output: string
-          title?: string
-          metadata?: ToolMetadata
-          attachments?: ToolAttachment[]
-          time?: {
-            start: number
-            end: number
-          }
-        }
-      | {
-          status: "error"
-          input: unknown
-          error: ErrorInfo
-          title?: string
-          metadata?: ToolMetadata
-          time?: {
-            start: number
-            end: number
-          }
-        }
 }
 
 export type MessagePart = TextPart | ReasoningPart | CompactionPart | ToolPart

@@ -22,7 +22,7 @@ export const TaskTool: ToolDefinition<TaskArgs> = defineTool({
     return {
       title: args.description,
       metadata: {
-        subagent: args.subagent_type,
+        subagentName: args.subagent_type,
         resume: Boolean(args.task_id),
       },
     }
@@ -54,7 +54,7 @@ export const TaskTool: ToolDefinition<TaskArgs> = defineTool({
   normalizeMetadata({ metadata, ctx }) {
     return {
       ...(metadata ?? {}),
-      parentSessionID: ctx.sessionID,
+      parentSessionId: ctx.sessionID,
     }
   },
   async execute(args, ctx) {
@@ -66,8 +66,8 @@ export const TaskTool: ToolDefinition<TaskArgs> = defineTool({
     const store = ctx.session_store
     const model = resolveParentModel(ctx.extra?.model)
     const child = resolveChildSession({
-      taskID: args.task_id,
-      parentSessionID: ctx.sessionID,
+      taskId: args.task_id,
+      parentSessionId: ctx.sessionID,
       description: args.description,
       agentName: agent.name,
       store,
@@ -107,30 +107,31 @@ export const TaskTool: ToolDefinition<TaskArgs> = defineTool({
         "</task_result>",
       ].join("\n"),
       metadata: {
+        taskId: child.id,
         sessionId: child.id,
-        agent: agent.name,
+        agentName: agent.name,
       },
     }
   },
 })
 
 function resolveChildSession(input: {
-  taskID?: string
-  parentSessionID: string
+  taskId?: string
+  parentSessionId: string
   description: string
   agentName: string
   store: ISessionStore
 }) {
-  if (input.taskID) {
-    const session = input.store.get(input.taskID)
-    if (session.parentID !== input.parentSessionID) {
-      throw new Error(`Task ${input.taskID} does not belong to session ${input.parentSessionID}`)
+  if (input.taskId) {
+    const session = input.store.get(input.taskId)
+    if (session.parentID !== input.parentSessionId) {
+      throw new Error(`Task ${input.taskId} does not belong to session ${input.parentSessionId}`)
     }
     return session
   }
 
   return input.store.create({
-    parentID: input.parentSessionID,
+    parentID: input.parentSessionId,
     title: `${input.description} (@${input.agentName} subagent)`,
   })
 }

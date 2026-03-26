@@ -108,8 +108,8 @@ function toToolResultMessage(part: ToolPart): ModelMessage | undefined {
   if (part.state.status === "completed") {
     return {
       role: "tool",
-      toolCallId: part.callID,
-      toolName: part.tool,
+      toolCallId: part.toolCallId,
+      toolName: part.toolName,
       input: part.state.input,
       content: [
         {
@@ -126,13 +126,13 @@ function toToolResultMessage(part: ToolPart): ModelMessage | undefined {
 
   return {
     role: "tool",
-    toolCallId: part.callID,
-    toolName: part.tool,
+    toolCallId: part.toolCallId,
+    toolName: part.toolName,
     input: part.state.input,
     content: [
       {
         type: "tool-error",
-        toolName: part.tool,
+        toolName: part.toolName,
         input: part.state.input,
         error: part.state.error.message,
       },

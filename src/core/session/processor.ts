@@ -2,6 +2,13 @@ import { getConfig } from "@/core/config"
 import { LLM, type LLMChunk, type ModelMessage } from "@/core/llm/index"
 import { RuntimeEvents } from "@/core/runtime/events"
 import type { AgentRegistry } from "@/core/agent/registry"
+import {
+  createRunningToolPart,
+  toCompletedToolPart,
+  toErroredToolPart,
+  toMetadataPatchedToolPart,
+  toRunningToolPart,
+} from "@/core/session/tool-part"
 import type { ISessionStore } from "@/core/session/store"
 import type { ToolRegistry } from "@/core/tool/registry"
 import { toToolExecutionErrorInfo, validateToolArgs } from "@/core/tool/tool"
@@ -333,17 +340,13 @@ async function executeToolCall(
   context.textPart = undefined
 
   const part = context.session_store.startToolPart(context.session.id, context.assistant.id, {
-    id: createID(),
-    type: "tool",
-    tool: chunk.toolName,
-    callID: chunk.toolCallId,
-    state: {
-      status: "running",
+    ...createRunningToolPart({
+      id: createID(),
+      toolName: chunk.toolName,
+      toolCallId: chunk.toolCallId,
       input: chunk.args,
-      time: {
-        start: Date.now(),
-      },
-    },
+      startedAt: Date.now(),
+    }),
   })
 
   const tool = context.tools.find((item) => item.id === chunk.toolName)
@@ -417,23 +420,11 @@ async function executeToolCall(
     return { kind: "continue" }
   } catch (error) {
     if (isAbortError(error)) {
-      context.session_store.updatePart(context.session.id, context.assistant.id, part.id, {
-        state: {
-          status: "error",
-          input: validatedArgs,
-          error: {
-            message: "Aborted",
-            retryable: false,
-            code: "aborted",
-          },
-          title: part.state.title,
-          metadata: part.state.metadata,
-          time: {
-            start: part.state.time?.start ?? Date.now(),
-            end: Date.now(),
-          },
-        },
-      })
+      context.session_store.updatePart(context.session.id, context.assistant.id, part.id, toErroredToolPart(part, validatedArgs, {
+        message: "Aborted",
+        retryable: false,
+        code: "aborted",
+      }))
       RuntimeEvents.emit({
         type: "tool-error",
         sessionID: context.session.id,
@@ -461,28 +452,16 @@ function markToolPartError(
   error: ErrorInfo,
 ) {
   context.recentToolFailures.push({
-    toolName: part.tool,
+    toolName: part.toolName,
     input,
     error: error.message,
   })
-  context.session_store.updatePart(context.session.id, context.assistant.id, part.id, {
-    state: {
-      status: "error",
-      input,
-      error,
-      title: part.state.title,
-      metadata: part.state.metadata,
-      time: {
-        start: part.state.time?.start ?? Date.now(),
-        end: Date.now(),
-      },
-    },
-  })
+  context.session_store.updatePart(context.session.id, context.assistant.id, part.id, toErroredToolPart(part, input, error))
   RuntimeEvents.emit({
     type: "tool-error",
     sessionID: context.session.id,
     agent: context.agent.name,
-    tool: part.tool,
+    tool: part.toolName,
     error: error.message,
   })
 }
@@ -493,7 +472,7 @@ function createToolContext(context: ProcessorContext, part: ToolPart): ToolConte
     messageID: context.assistant.id,
     agent: context.agent.name,
     abort: context.abort,
-    callID: part.callID,
+    toolCallId: part.toolCallId,
     format: context.user.format,
     messages: collectSessionHistory(context.session_store, context.session.id),
     extra: {
@@ -508,13 +487,15 @@ function createToolContext(context: ProcessorContext, part: ToolPart): ToolConte
       )
       if (!latest) return
 
-      context.session_store.updatePart(context.session.id, context.assistant.id, part.id, {
-        state: {
-          ...latest.state,
+      context.session_store.updatePart(
+        context.session.id,
+        context.assistant.id,
+        part.id,
+        toMetadataPatchedToolPart(latest, {
           title: metadataUpdate.title,
           metadata: metadataUpdate.metadata,
-        },
-      })
+        }),
+      )
     },
     async captureStructuredOutput(output: unknown) {
       RuntimeEvents.emit({
@@ -539,17 +520,7 @@ function collectSessionHistory(store: ISessionStore, sessionID: string): Session
 }
 
 function updateRunningToolPart(context: ProcessorContext, part: ToolPart, input: unknown) {
-  context.session_store.updatePart(context.session.id, context.assistant.id, part.id, {
-    state: {
-      status: "running",
-      input,
-      title: part.state.title,
-      metadata: part.state.metadata,
-      time: {
-        start: part.state.time?.start ?? Date.now(),
-      },
-    },
-  })
+  context.session_store.updatePart(context.session.id, context.assistant.id, part.id, toRunningToolPart(part, input))
 }
 
 function completeToolPart(
@@ -558,20 +529,7 @@ function completeToolPart(
   input: unknown,
   result: Awaited<ReturnType<ToolDefinition<unknown>["execute"]>>,
 ) {
-  context.session_store.updatePart(context.session.id, context.assistant.id, part.id, {
-    state: {
-      status: "completed",
-      input,
-      output: result.output,
-      title: result.title,
-      metadata: result.metadata,
-      attachments: result.attachments,
-      time: {
-        start: part.state.time?.start ?? Date.now(),
-        end: Date.now(),
-      },
-    },
-  })
+  context.session_store.updatePart(context.session.id, context.assistant.id, part.id, toCompletedToolPart(part, input, result))
 }
 
 function shouldStopForRepeatedToolFailures(context: ProcessorContext) {
