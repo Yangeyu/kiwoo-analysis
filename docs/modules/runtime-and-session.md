@@ -12,6 +12,7 @@
 - `src/core/runtime/modules.ts`
 - `src/core/session/prompt.ts`
 - `src/core/session/processor.ts`
+- `src/core/session/tool-part.ts`
 - `src/core/session/store/`
 - `src/core/session/model-message.ts`
 - `src/core/session/system.ts`
@@ -73,7 +74,7 @@
 - 调用 `LLM.stream()` 获得统一 chunk 流
 - 将 reasoning/text 增量写入 session parts
 - 处理 tool-call chunk，校验参数后执行工具
-- 把 tool result / tool error 写回 tool part
+- 把 tool result / tool error 归一化成稳定的 `ToolPart` 结构后写回 session
 - 处理 finish / error / abort
 
 它不负责决定是否开始下一轮，只返回 `continue | stop | compact` 给外层 loop。
@@ -94,6 +95,18 @@ store 负责维护 session 状态：
 - `parts` 记录 reasoning/text/tool/compaction 等细粒度内容
 - 通过 append/update API 统一修改 session 状态
 
+当前 tool part 持久化协议已经单独收口为稳定字段：
+
+- 基础字段：`id`、`type`、`toolName`、`toolCallId`
+- `state.status`
+- `state.input`
+- `state.title`
+- `state.metadata`
+- `state.output` / `state.attachments` / `state.error`
+- `state.time.start` / `state.time.end`
+
+`src/core/session/tool-part.ts` 负责把运行中的 tool 调用归一化成这套稳定 `ToolPart` 结构，避免 board 或其他消费者直接依赖 processor 内部中间态。
+
 这是项目里最核心的状态事实来源，但初始化职责不再放在 store 模块内部。
 
 ## System prompt 与模型消息
@@ -106,6 +119,14 @@ store 负责维护 session 状态：
 `src/core/session/compaction.ts` 在消息数达到阈值后，把最近历史压缩成 `compaction` part，并只保留最新 user message 继续执行。
 
 目的不是长期存档，而是给后续 step 保留足够上下文摘要，避免循环被上下文长度卡死。
+
+当前 compaction summary 不只保留 user/assistant 文本，也会把最近 tool 调用结果压缩成摘要行：
+
+- completed tool: `tool <toolName> (<title>): <output excerpt>`
+- errored tool: `tool <toolName> error: <error excerpt>`
+- 如果 tool metadata 含关键标识，会附加到摘要里，例如 `taskId`、`sessionId`、`boardId`、`sourceDataId`
+
+这样在历史消息被裁剪后，后续 step 仍能从 compaction part 理解最近做过哪些关键工具调用和结果。
 
 ## 阅读建议
 

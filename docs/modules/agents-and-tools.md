@@ -16,6 +16,7 @@
 - `src/core/tool/batch.ts`
 - `src/core/tool/task.ts`
 - `src/core/tool/tool.ts`
+- `src/core/session/tool-part.ts`
 - `src/core/module.ts`
 
 ## Agent 体系
@@ -63,6 +64,31 @@
 - `afterExecute`
 - output / metadata 归一化
 - 结果写回 session tool part
+
+tool 结果在真正落进 session history 前，还会经过 `src/core/session/tool-part.ts` 的稳定 `ToolPart` 协议收口。当前稳定字段包括：
+
+- `toolName`
+- `toolCallId`
+- `state.status`
+- `state.input`
+- `state.title`
+- `state.metadata`
+- `state.output`
+- `state.attachments`
+- `state.error.code` / `state.error.message` / `state.error.retryable`
+- `state.time.start` / `state.time.end`
+
+这层协议是给 session replay、compaction、board 等消费者使用的稳定边界；runtime event、provider chunk、hook 临时上下文等调试细节不应直接落进这层结构。
+
+tool metadata key 约定优先使用 `camelCase`，例如：
+
+- `taskId`
+- `sessionId`
+- `parentSessionId`
+- `boardId`
+- `sourceDataId`
+- `agentName`
+- `subagentName`
 
 `defineTool()` 当前统一处理：
 
