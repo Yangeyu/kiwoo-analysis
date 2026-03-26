@@ -34,11 +34,12 @@ src/
 
 1. `src/index.ts` 解析命令行参数，选择 CLI 或 TUI。
 2. `src/core/runtime/bootstrap.ts` 装配 runtime modules，注册 agents 和 tools。
-3. `src/core/session/prompt.ts` 创建 user message，进入外层 loop。
-4. `src/core/session/processor.ts` 调用 `LLM.stream()` 消费 chunk，并把文本、reasoning、tool 调用写回 session。
-5. tool 调用通过 `src/core/tool/*` 执行；`task` 会创建 child session 并再次进入 `SessionPrompt.prompt()`。
-6. 若模型返回 `length`，`src/core/session/compaction.ts` 会压缩上下文后继续下一轮。
-7. `src/core/runtime/events.ts` 广播事件，由 `src/core/runtime/logger.ts` 或 `src/tui/app.tsx` 渲染执行过程。
+3. `src/core/runtime/context.ts` 通过 `src/core/config.ts` 解析配置，并创建 `session_store` 等运行时依赖。
+4. `src/core/session/prompt.ts` 创建 user message，进入外层 loop。
+5. `src/core/session/processor.ts` 调用 `LLM.stream()` 消费 chunk，并把文本、reasoning、tool 调用写回 session。
+6. tool 调用通过 `src/core/tool/*` 执行；`task` 会创建 child session 并再次进入 `SessionPrompt.prompt()`。
+7. 若模型返回 `length`，`src/core/session/compaction.ts` 会压缩上下文后继续下一轮。
+8. `src/core/runtime/events.ts` 广播事件，由 `src/core/runtime/logger.ts` 或 `src/tui/app.tsx` 渲染执行过程。
 
 ## 运行时模块装配
 
@@ -61,3 +62,10 @@ src/
 - 新增 runtime module: 新建模块对象后注册到 `src/core/runtime/modules.ts`
 - 新增 provider: 放在 `src/core/llm/providers/`，并接入 `src/core/llm/models.ts`
 - 新增结构化输出场景: 复用 `SessionPrompt` 中的 `StructuredOutput` 注入机制
+
+## 初始化约束
+
+- `src/core/config.ts` 只做配置解析和校验，不承担运行时对象初始化。
+- `src/core/runtime/context.ts` 是运行时依赖的唯一组合根。
+- `src/core/session/store/` 只提供接口、实现和工厂；不要在 store 模块内部维护新的启动型单例。
+- 新的跨模块运行时依赖应优先挂到 `RuntimeContext`，避免继续扩散隐式全局状态。

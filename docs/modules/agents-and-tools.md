@@ -19,7 +19,7 @@
 
 ## Agent 体系
 
-`src/core/agent/registry.ts` 维护全局 agent 注册表，支持：
+`src/core/agent/registry.ts` 定义 agent registry 工厂；实际 registry 实例由 `src/core/runtime/context.ts` 创建并持有，支持：
 
 - `register()`
 - `get()`
@@ -48,7 +48,7 @@
 - `read`
 - `grep`
 
-`src/core/tool/registry.ts` 根据 agent 的 `tools` 开关，筛选当前 step 可用工具。
+`src/core/tool/registry.ts` 定义 tool registry 工厂；实际 registry 实例由 `RuntimeContext.tool_registry` 持有，并根据 agent 的 `tools` 开关筛选当前 step 可用工具。
 
 ## 关键工具职责
 
@@ -67,6 +67,8 @@
 
 ## 设计重点
 
+- agent/tool registry 属于运行时依赖，应由入口层从 `RuntimeContext` 装配，再通过 `RuntimeDeps` / `ToolContext` 往执行链传递，而不是依赖模块级全局表。
+- tool 执行链优先通过 `ToolContext` / `RuntimeDeps` 显式拿到 `agent_registry`、`tool_registry`、`session_store`。
 - tool 的 schema、描述、执行逻辑尽量放在一起。
 - tool 结果若需要在后续轮次被模型感知，必须写回 session part。
 - `task` 是最重要的编排原语，因为它把多 agent 协作落成了递归 session。

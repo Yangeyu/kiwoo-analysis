@@ -26,7 +26,7 @@ docs/
 
 - `docs/project-map.md`: 全局地图、调用路径、源码分区。
 - `docs/modules/entrypoints-and-ui.md`: CLI 入口、TUI、用户交互路径。
-- `docs/modules/runtime-and-session.md`: runtime bootstrap、事件、session loop、processor、store、compaction。
+- `docs/modules/runtime-and-session.md`: runtime bootstrap、runtime context、配置约束、session loop、processor、store、compaction。
 - `docs/modules/llm-and-providers.md`: 模型选择、流式协议、Qwen/fake provider、SSE 解码。
 - `docs/modules/agents-and-tools.md`: agent 注册、prompt、tool 注册、bash/read/grep/batch/task 行为。
 - `docs/modules/board-and-integrations.md`: board 子模块、结构化报告链路、Postgres 集成。

@@ -6,22 +6,46 @@
 
 ## 相关文件
 
+- `src/core/config.ts`
 - `src/core/runtime/bootstrap.ts`
+- `src/core/runtime/context.ts`
 - `src/core/runtime/modules.ts`
 - `src/core/session/prompt.ts`
 - `src/core/session/processor.ts`
-- `src/core/session/store.ts`
+- `src/core/session/store/`
 - `src/core/session/model-message.ts`
 - `src/core/session/system.ts`
 - `src/core/session/compaction.ts`
 - `src/core/types.ts`
 
+## 配置与运行时上下文
+
+- `src/core/config.ts` 只负责环境变量解析、schema 校验、默认值和缓存读取，不负责创建任何运行时依赖。
+- `src/core/runtime/context.ts` 是唯一组合根，负责把 `config`、`session_store`、`agent_registry`、`tool_registry` 等运行时依赖装配成 `RuntimeContext`。
+- `src/core/runtime/bootstrap.ts` 必须先调用 `initRuntimeContext()`，再注册 modules、agents 和 tools。
+
+### RuntimeContext vs RuntimeDeps
+
+- `RuntimeContext` 表示完整运行时，只应由 bootstrap、CLI 入口、TUI 入口这类组合根持有。
+- `RuntimeDeps` 是执行链依赖切片，只包含 `agent_registry`、`session_store`、`tool_registry`，供 `SessionPrompt`、`SessionProcessor`、tool execute context 等内部链路传递。
+- `runPrompt()` 现在要求调用方显式传入 `runtime`，不再负责隐式初始化运行时。
+- 规则上，能拿 `RuntimeDeps` 的地方就不要持有 `RuntimeContext`；只有需要创建/装配/启动运行时的边界模块才应该碰 `RuntimeContext`。
+
+当前约束：
+
+- 不要在业务模块里直接 new store/provider 等具体实现。
+- 不要在 `config.ts` 里新增 `initXxx()` 风格的启动逻辑。
+- 新的全局运行时依赖应优先接入 `RuntimeContext`，而不是再引入新的模块级单例。
+- `AgentRegistry` / `ToolRegistry` 不再作为全局模块状态存在。
+- `getRuntimeContext()` 只应留在运行时初始化模块内部；核心执行链必须通过 `RuntimeDeps` 显式传递依赖。
+
 ## Runtime bootstrap
 
 `src/core/runtime/bootstrap.ts` 在首次启动时遍历 `RuntimeModules`：
 
-- 注册每个模块暴露的 tools
-- 注册每个模块暴露的 agents
+- 初始化 `RuntimeContext`
+- 向 `RuntimeContext.tool_registry` 注册每个模块暴露的 tools
+- 向 `RuntimeContext.agent_registry` 注册每个模块暴露的 agents
 - 保证 bootstrap 只执行一次
 
 这让 core/board 之类的能力以模块方式接入，而不是散落在入口文件里。
@@ -54,15 +78,23 @@
 
 它不负责决定是否开始下一轮，只返回 `continue | stop | compact` 给外层 loop。
 
-## SessionStore: 内存态持久层
+## SessionStore: Store 接口与运行时适配
 
-`src/core/session/store.ts` 目前是进程内存 Map：
+`src/core/session/store/` 现在分成三层：
+
+- `types.ts`: `ISessionStore` 边界接口
+- `memory.ts` / `file.ts`: 具体实现
+- `factory.ts`: 根据配置创建 store
+
+运行时默认通过 `RuntimeContext.session_store` 持有实际 store，业务模块通过显式依赖或 `getRuntimeContext()` 读取该 store。
+
+store 负责维护 session 状态：
 
 - `messages` 记录 user/assistant 消息
 - `parts` 记录 reasoning/text/tool/compaction 等细粒度内容
 - 通过 append/update API 统一修改 session 状态
 
-这是项目里最核心的状态事实来源。
+这是项目里最核心的状态事实来源，但初始化职责不再放在 store 模块内部。
 
 ## System prompt 与模型消息
 
@@ -77,6 +109,7 @@
 
 ## 阅读建议
 
-- 先读 `prompt.ts` 看整体 loop。
-- 再读 `processor.ts` 看单步内如何消费 stream 和执行 tool。
-- 最后读 `store.ts` 和 `compaction.ts` 看状态如何落盘到内存。
+- 先读 `config.ts` 和 `runtime/context.ts` 看初始化边界。
+- 再读 `prompt.ts` 看整体 loop。
+- 然后读 `processor.ts` 看单步内如何消费 stream 和执行 tool。
+- 最后读 `session/store/` 和 `compaction.ts` 看状态如何保存与压缩。
