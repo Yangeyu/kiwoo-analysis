@@ -1,33 +1,34 @@
 import { loadBoardSnapshot } from "@/board/snapshot"
-import type { ToolDefinition } from "@/core/types"
+import { defineTool } from "@/core/tool/tool"
 import { z } from "zod"
 
 export const BoardSnapshotParameters = z.object({
   boardId: z.string().trim().min(1),
 })
 
-type BoardSnapshotArgs = z.infer<typeof BoardSnapshotParameters>
-
-export const BoardSnapshotTool: ToolDefinition<BoardSnapshotArgs> = {
+export const BoardSnapshotTool = defineTool({
   id: "board_snapshot",
   description: "Load a normalized board snapshot from the Kiwoo PostgreSQL database.",
   parameters: BoardSnapshotParameters,
-  async execute(args, ctx) {
-    const snapshot = await loadBoardSnapshot(args.boardId)
-
-    await ctx.metadata({
+  beforeExecute({ args }) {
+    return {
       title: `board_snapshot: ${args.boardId}`,
       metadata: {
-        boardTitle: snapshot.board.title,
-        itemCount: snapshot.metadata.itemCount,
-        linkCount: snapshot.metadata.linkCount,
+        boardId: args.boardId,
       },
-    })
+    }
+  },
+  async execute(args) {
+    const snapshot = await loadBoardSnapshot(args.boardId)
 
     return {
       title: `Board snapshot: ${snapshot.board.title}`,
       output: JSON.stringify(snapshot, null, 2),
-      metadata: snapshot.metadata,
+      metadata: {
+        boardId: args.boardId,
+        boardTitle: snapshot.board.title,
+        ...snapshot.metadata,
+      },
     }
   },
-}
+})
