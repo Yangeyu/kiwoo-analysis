@@ -60,6 +60,7 @@ docs/
 - Keep the main runtime flow explicit: input -> model -> tool execution -> session update -> next step.
 - Preserve upstream concepts and naming when they improve clarity.
 - Choose design patterns by module responsibility; use the simplest design that stays clear and extensible.
+- Follow SOLID pragmatically: keep single responsibilities clear, extend with composition over branching, preserve substitutability at module boundaries, keep interfaces narrow, and depend on abstractions at runtime seams.
 - Keep providers, tools, stores, and renderers as focused boundary adapters.
 - Centralize and make traceable all state transitions around session messages, parts, tools, and compaction.
 - Introduce abstractions only when they clearly improve readability, reuse, or change isolation.
@@ -72,6 +73,7 @@ docs/
 - Keep strict typing; prefer `unknown` plus narrowing over `any`.
 - Follow existing style: no semicolons, double quotes, 2-space indentation.
 - Prefer short functions and straightforward module boundaries.
+- When applying SOLID here, prefer small focused modules, explicit dependency injection for runtime collaborators, and narrow interfaces over catch-all managers.
 
 ## Type And Tool Constraints
 
