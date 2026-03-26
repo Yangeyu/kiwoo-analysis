@@ -8,6 +8,7 @@ export const coreAgents: AgentInfo[] = [
     prompt: BUILD_AGENT_PROMPT,
     tools: {
       task: true,
+      task_resume: true,
       batch: true,
       read: true,
       grep: true,

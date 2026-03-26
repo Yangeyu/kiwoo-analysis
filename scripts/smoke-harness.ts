@@ -1,5 +1,6 @@
 import { bootstrapRuntime, runPrompt } from "../src/core/runtime/bootstrap"
 import { SessionCompaction } from "../src/core/session/compaction"
+import type { TaskResumeArgs } from "../src/core/tool/task"
 import { createID, type AssistantMessage, type SessionInfo, type ToolPart, type UserMessage } from "../src/core/types"
 import assert from "node:assert/strict"
 
@@ -10,6 +11,7 @@ const runtime = bootstrapRuntime()
 
 await runInvalidArgsCase()
 await runTaskCase()
+await runTaskResumeCase()
 await runNestedBatchCase()
 runCompactionCase()
 
@@ -44,6 +46,37 @@ async function runTaskCase() {
     .filter((candidate) => candidate.parentID === session.id)
   assert(children.length >= 1, "expected a child session for task smoke")
   assert(runtime.session_store.list().length > before, "expected task smoke to create a new session")
+}
+
+async function runTaskResumeCase() {
+  const parent = runtime.session_store.create({ title: "Task resume smoke" })
+  const child = runtime.session_store.create({
+    parentID: parent.id,
+    title: "Resume child (@general subagent)",
+  })
+  const before = runtime.session_store.list().length
+  const tool = runtime.tool_registry.getTyped<TaskResumeArgs>("task_resume")
+
+  const result = await tool.execute({
+    task_id: child.id,
+    description: "Resume child",
+    prompt: "Continue the previous investigation",
+    subagent_type: "general",
+  }, {
+    agent_registry: runtime.agent_registry,
+    session_store: runtime.session_store,
+    tool_registry: runtime.tool_registry,
+    sessionID: parent.id,
+    messageID: createID(),
+    agent: "build",
+    abort: new AbortController().signal,
+    messages: [],
+    metadata: async () => {},
+    captureStructuredOutput: async () => {},
+  })
+
+  assert.match(result.output, new RegExp(`task_id: ${child.id}`))
+  assert.equal(runtime.session_store.list().length, before, "expected task_resume to reuse existing session")
 }
 
 async function runNestedBatchCase() {
@@ -132,6 +165,20 @@ function runCompactionCase() {
       time: { start: Date.now(), end: Date.now() },
     },
   })
+  runtime.session_store.startToolPart(session.id, assistant.id, {
+    id: createID(),
+    type: "tool",
+    toolName: "task_resume",
+    toolCallId: createID(),
+    state: {
+      status: "completed",
+      input: { task_id: "child-1", description: "Resume delegated work" },
+      output: "task_id: child-1\nagent: general",
+      title: "Resume delegated work",
+      metadata: { taskId: "child-1", sessionId: "child-1", agentName: "general" },
+      time: { start: Date.now(), end: Date.now() },
+    },
+  })
 
   const latestUser: UserMessage = {
     id: createID(),
@@ -161,4 +208,5 @@ function runCompactionCase() {
   assert(summaryPart && summaryPart.type === "compaction", "expected compaction part")
   assert.match(summaryPart.summary, /tool board_snapshot \(Board snapshot: Demo\) \[boardId=board-1, sourceDataId=data-1\]: Loaded board snapshot with 3 items and 2 links/)
   assert.match(summaryPart.summary, /tool task \(Delegate work\) \[taskId=child-1, sessionId=child-1, agentName=general\]: task_id: child-1 agent: general/)
+  assert.match(summaryPart.summary, /tool task_resume \(Resume delegated work\) \[taskId=child-1, sessionId=child-1, agentName=general\]: task_id: child-1 agent: general/)
 }

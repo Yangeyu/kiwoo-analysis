@@ -112,6 +112,12 @@ function formatToolLabel(tool: string, args: unknown) {
     return description ? `Delegate to ${subagent}: ${description}` : `Delegate to ${subagent}`
   }
 
+  if (tool === "task_resume") {
+    const subagent = typeof input.subagent_type === "string" ? input.subagent_type : "agent"
+    const taskID = typeof input.task_id === "string" ? input.task_id : undefined
+    return taskID ? `Resume ${subagent}: ${taskID}` : `Resume ${subagent}`
+  }
+
   if (tool === "batch") {
     const calls = Array.isArray(input.calls) ? input.calls.length : undefined
     return calls ? `Run batch (${calls})` : "Run batch"

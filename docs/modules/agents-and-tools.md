@@ -31,7 +31,7 @@
 当前核心 agents：
 
 - `build`: 主 agent，默认入口，拥有最完整的工具权限。
-- `general`: 通用 subagent，适合被 `task` 工具委派执行中间调查。
+- `general`: 通用 subagent，适合被 `task` 工具创建的 child session 承接中间调查，也可被 `task_resume` 继续复用。
 
 ## Agent Prompt
 
@@ -45,6 +45,7 @@
 `src/core/tool/tools.ts` 汇总 core tools：
 
 - `task`
+- `task_resume`
 - `batch`
 - `bash`
 - `read`
@@ -123,7 +124,8 @@ tool metadata key 约定优先使用 `camelCase`，例如：
 - `batch.ts`
   - 用于并发执行多个独立工具调用
 - `task.ts`
-  - 创建或复用 child session
+  - `task`: 创建新的 child session
+  - `task_resume`: 复用已有 child session
   - 调用子 agent 再次进入 `SessionPrompt.prompt()`
   - 返回 `task_id` 与子结果文本
 
@@ -134,7 +136,7 @@ tool metadata key 约定优先使用 `camelCase`，例如：
 - tool 的 schema、描述、执行逻辑尽量放在一起。
 - tool 的横切逻辑优先放到 `defineTool()` 的 hook 和归一化阶段，而不是散落在每个 `execute()` 中。
 - tool 结果若需要在后续轮次被模型感知，必须写回 session part。
-- `task` 是最重要的编排原语，因为它把多 agent 协作落成了递归 session。
+- `task` / `task_resume` 是最重要的编排原语，因为它们把多 agent 协作落成了递归 session，并把“新建”和“续跑”两种语义拆开。
 
 ## 扩展建议
 

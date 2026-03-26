@@ -29,7 +29,7 @@
 典型流程如下：
 
 1. `build` agent 识别 board 报告请求。
-2. 通过 `task` 委派给 `board_report`。
+2. 通过 `task` 委派给 `board_report`；只有明确要继续同一个子任务时才使用 `task_resume`。
 3. `board_report` 调用 `board_snapshot`。
 4. `board_snapshot` 内部使用 `loadBoardSnapshot()` 读取并标准化数据库数据。
 5. agent 结合结构化输出 schema 返回多章节报告。
