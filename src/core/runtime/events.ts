@@ -1,7 +1,27 @@
 type RuntimeEvent =
   | { type: "session-start"; sessionID: string; agent: string; text: string }
   | { type: "loop-step"; sessionID: string; step: number; agent: string }
+  | {
+      type: "budget-hit"
+      sessionID: string
+      agent: string
+      budget: "session_steps" | "agent_steps" | "subagent_depth" | "tool_calls" | "tool_failures"
+      detail: string
+      limit: number
+      used?: number
+    }
   | { type: "turn-start"; sessionID: string; agent: string; messageID: string; step: number }
+  | {
+      type: "retry"
+      sessionID: string
+      agent: string
+      messageID: string
+      attempt: number
+      delayMs: number
+      category: "abort" | "timeout" | "network" | "availability" | "rate_limit" | "unknown"
+      reason?: string
+      error: string
+    }
   | {
       type: "turn-phase"
       sessionID: string
@@ -32,17 +52,24 @@ type RuntimeEvent =
 
 type Listener = (event: RuntimeEvent) => void
 
-const listeners = new Set<Listener>()
-
-export const RuntimeEvents = {
-  emit(event: RuntimeEvent) {
-    for (const listener of listeners) listener(event)
-  },
-
-  subscribe(listener: Listener) {
-    listeners.add(listener)
-    return () => listeners.delete(listener)
-  },
+export type RuntimeEventBus = {
+  emit(event: RuntimeEvent): void
+  subscribe(listener: Listener): () => void
 }
 
-export type { RuntimeEvent }
+export function createRuntimeEvents(): RuntimeEventBus {
+  const listeners = new Set<Listener>()
+
+  return {
+    emit(event) {
+      for (const listener of listeners) listener(event)
+    },
+
+    subscribe(listener) {
+      listeners.add(listener)
+      return () => listeners.delete(listener)
+    },
+  }
+}
+
+export type { Listener, RuntimeEvent }
