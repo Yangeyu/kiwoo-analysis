@@ -1,5 +1,5 @@
 import type { RuntimeDeps } from "@/core/runtime/context"
-import { RuntimeEvents } from "@/core/runtime/events"
+import { createTurnAbortSignal, resolveTurnExecutionPolicy, type TurnExecutionPolicy } from "@/core/runtime/execution-policy"
 import { toModelMessages } from "@/core/session/model-message"
 import { SessionCompaction } from "@/core/session/compaction"
 import { SessionProcessor } from "@/core/session/processor"
@@ -27,6 +27,7 @@ type LoopContext = RuntimeDeps & {
 type LoopState = {
   user: UserMessage
   agent: AgentInfo
+  policy: TurnExecutionPolicy
   tools: ToolDefinition[]
   assistant: AssistantMessage
 }
@@ -53,25 +54,32 @@ export namespace SessionPrompt {
       type: "text",
       text: input.text,
     })
-    emitSessionStart(store, session.id, user)
+    emitSessionStart(deps, session.id, user)
 
     return loop({ sessionID: session.id, abort: input.abort }, deps)
   }
 
   export async function loop(input: { sessionID: string; abort?: AbortSignal }, deps: RuntimeDeps) {
     const context: LoopContext = {
+      config: deps.config,
       agent_registry: deps.agent_registry,
       session_store: deps.session_store,
       sessionID: input.sessionID,
       abort: input.abort ?? new AbortController().signal,
       step: 0,
       tool_registry: deps.tool_registry,
+      events: deps.events,
     }
 
     while (true) {
       context.step += 1
 
       const state = await prepareLoopState(context)
+      if (state.policy.budget.maxSteps <= 0) {
+        stopForExhaustedSessionBudget(context, state)
+        return context.session_store.get(context.sessionID)
+      }
+
       const result = await runLoopStep(context, state)
       const decision = decideNextAction(context, state, result)
 
@@ -101,12 +109,12 @@ function createUserMessage(input: {
   }
 }
 
-function emitSessionStart(store: RuntimeDeps["session_store"], sessionID: string, user: UserMessage) {
-  RuntimeEvents.emit({
+function emitSessionStart(deps: RuntimeDeps, sessionID: string, user: UserMessage) {
+  deps.events.emit({
     type: "session-start",
     sessionID,
     agent: user.agent,
-    text: store.getMessageText(sessionID, user.id),
+    text: deps.session_store.getMessageText(sessionID, user.id),
   })
 }
 
@@ -114,8 +122,9 @@ async function prepareLoopState(context: LoopContext): Promise<LoopState> {
   const session = context.session_store.get(context.sessionID)
   const user = resolveLastUserMessage(context.session_store, session.id)
   const agent = context.agent_registry.get(user.agent)
+  const policy = resolveTurnExecutionPolicy(context.config, agent, session)
 
-  RuntimeEvents.emit({
+  context.events.emit({
     type: "loop-step",
     sessionID: session.id,
     step: context.step,
@@ -129,6 +138,7 @@ async function prepareLoopState(context: LoopContext): Promise<LoopState> {
   return {
     user,
     agent,
+    policy,
     tools,
     assistant,
   }
@@ -136,26 +146,37 @@ async function prepareLoopState(context: LoopContext): Promise<LoopState> {
 
 async function runLoopStep(context: LoopContext, state: LoopState) {
   const session = context.session_store.get(context.sessionID)
-  const maxSteps = state.agent.steps ?? Number.POSITIVE_INFINITY
-  return await SessionProcessor.process({
-    session_store: context.session_store,
-    agent_registry: context.agent_registry,
-    session,
-    user: state.user,
-    assistant: state.assistant,
-    agent: state.agent,
-    system: buildSystemPrompt({
+  const turnAbort = createTurnAbortSignal({
+    parent: context.abort,
+    timeoutMs: state.policy.timeout.turnTimeoutMs,
+  })
+
+  try {
+    return await SessionProcessor.process({
+      config: context.config,
+      session_store: context.session_store,
+      events: context.events,
+      agent_registry: context.agent_registry,
+      session,
+      user: state.user,
+      assistant: state.assistant,
       agent: state.agent,
-      format: state.user.format,
-      step: context.step,
-      maxSteps,
-    }),
-    messages: toModelMessages(session),
-    tools: state.tools,
-    tool_registry: context.tool_registry,
-    abort: context.abort,
+      system: buildSystemPrompt({
+        agent: state.agent,
+        format: state.user.format,
+        step: context.step,
+        maxSteps: state.policy.budget.maxSteps,
+      }),
+      messages: toModelMessages(session),
+      tools: state.tools,
+      tool_registry: context.tool_registry,
+      policy: state.policy,
+      abort: turnAbort.signal,
     })
+  } finally {
+    turnAbort.dispose()
   }
+}
 
 function decideNextAction(context: LoopContext, state: LoopState, result: Awaited<ReturnType<typeof SessionProcessor.process>>): LoopDecision {
   const latestAssistant = context.session_store.get(context.sessionID).messages.find(
@@ -177,6 +198,7 @@ function decideNextAction(context: LoopContext, state: LoopState, result: Awaite
     const session = context.session_store.get(context.sessionID)
     SessionCompaction.process({
       store: context.session_store,
+      events: context.events,
       session,
       trigger: state.assistant,
       latestUser: state.user,
@@ -185,13 +207,14 @@ function decideNextAction(context: LoopContext, state: LoopState, result: Awaite
   }
 
   if (result === "continue") {
-    const maxSteps = state.agent.steps ?? Number.POSITIVE_INFINITY
+    const maxSteps = state.policy.budget.maxSteps
     if (context.step >= maxSteps) {
+      emitStepBudgetHit(context, state)
       context.session_store.updateMessage(context.sessionID, state.assistant.id, { finish: "stop" })
       context.session_store.appendTextPart(context.sessionID, state.assistant.id, {
         id: createID(),
         type: "text",
-        text: "\n\n[Stopped: max steps reached]",
+        text: `\n\n[Stopped: ${resolveStepBudgetStopReason(state.policy)}]`,
         synthetic: true,
       })
       return { kind: "break" }
@@ -200,16 +223,17 @@ function decideNextAction(context: LoopContext, state: LoopState, result: Awaite
   }
 
   if (latestAssistant && !latestAssistant.error && !hasFinalText) {
-    const maxSteps = state.agent.steps ?? Number.POSITIVE_INFINITY
+    const maxSteps = state.policy.budget.maxSteps
     if (context.step < maxSteps) {
       return { kind: "continue" }
     }
 
+    emitStepBudgetHit(context, state)
     context.session_store.updateMessage(context.sessionID, state.assistant.id, { finish: "stop" })
     context.session_store.appendTextPart(context.sessionID, state.assistant.id, {
       id: createID(),
       type: "text",
-      text: "\n\n[Stopped: model ended without a final answer]",
+      text: `\n\n[Stopped: model ended without a final answer before ${resolveStepBudgetStopReason(state.policy)}]`,
       synthetic: true,
     })
     return { kind: "break" }
@@ -238,6 +262,66 @@ function createAssistantMessage(sessionID: string, user: UserMessage, agent: Age
     },
   }
 }
+
+function stopForExhaustedSessionBudget(context: LoopContext, state: LoopState) {
+  context.events.emit({
+    type: "budget-hit",
+    sessionID: context.sessionID,
+    agent: state.agent.name,
+    budget: "session_steps",
+    detail: "Total session step budget reached",
+    limit: state.policy.budget.maxSessionSteps,
+    used: state.policy.budget.sessionStepsUsed,
+  })
+
+  context.session_store.updateMessage(context.sessionID, state.assistant.id, { finish: "stop" })
+  context.session_store.appendTextPart(context.sessionID, state.assistant.id, {
+    id: createID(),
+    type: "text",
+    text: "\n\n[Stopped: total session step budget reached]",
+    synthetic: true,
+  })
+}
+
+function emitStepBudgetHit(context: LoopContext, state: LoopState) {
+  const budget = resolveStepBudgetEvent(state.policy)
+  context.events.emit({
+    type: "budget-hit",
+    sessionID: context.sessionID,
+    agent: state.agent.name,
+    budget: budget.kind,
+    detail: budget.detail,
+    limit: budget.limit,
+    used: budget.used,
+  })
+}
+
+function resolveStepBudgetEvent(policy: TurnExecutionPolicy) {
+  if (policy.budget.sessionStepsRemaining <= policy.budget.maxAgentSteps) {
+    return {
+      kind: "session_steps" as const,
+      detail: "Total session step budget reached",
+      limit: policy.budget.maxSessionSteps,
+      used: policy.budget.sessionStepsUsed + policy.budget.maxSteps,
+    }
+  }
+
+  return {
+    kind: "agent_steps" as const,
+    detail: "Agent step budget reached for this prompt loop",
+    limit: policy.budget.maxAgentSteps,
+    used: policy.budget.maxSteps,
+  }
+}
+
+function resolveStepBudgetStopReason(policy: TurnExecutionPolicy) {
+  if (policy.budget.sessionStepsRemaining <= policy.budget.maxAgentSteps) {
+    return "total session step budget reached"
+  }
+
+  return "max steps reached"
+}
+
 async function resolveToolsForTurn(toolRegistry: RuntimeDeps["tool_registry"], agent: AgentInfo, format: UserMessage["format"]) {
   const tools = [...(await toolRegistry.toolsForAgent(agent))]
 

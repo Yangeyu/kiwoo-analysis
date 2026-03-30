@@ -1,4 +1,5 @@
 import { SessionPrompt } from "@/core/session/prompt"
+import { getDelegationDepthInfo, resolveSessionDepth } from "@/core/runtime/execution-policy"
 import type { ISessionStore } from "@/core/session/store"
 import { defineTool } from "@/core/tool/tool"
 import type {
@@ -82,6 +83,14 @@ function createTaskTool<P extends z.ZodTypeAny>(input: {
         }
       }
 
+      if (message.includes("Subagent depth limit reached")) {
+        return {
+          message: `The ${toolID} tool failed: ${message}`,
+          retryable: false,
+          code: "task_depth_exceeded",
+        }
+      }
+
       return {
         message: `The ${toolID} tool failed: ${message}`,
         retryable: false,
@@ -102,6 +111,25 @@ function createTaskTool<P extends z.ZodTypeAny>(input: {
 
       const store = ctx.session_store
       const model = resolveParentModel(ctx.extra?.model)
+      const depth = getDelegationDepthInfo({
+        store,
+        sessionID: ctx.sessionID,
+        maxDepth: ctx.config.subagent_max_depth,
+      })
+
+      if (!depth.allowed) {
+        ctx.events.emit({
+          type: "budget-hit",
+          sessionID: ctx.sessionID,
+          agent: ctx.agent,
+          budget: "subagent_depth",
+          detail: `Subagent depth limit reached at depth ${depth.nextDepth}`,
+          limit: depth.maxDepth,
+          used: depth.nextDepth,
+        })
+        throw new Error(`Subagent depth limit reached: attempted depth ${depth.nextDepth}, max ${depth.maxDepth}`)
+      }
+
       const child = input.resume
         ? getChildSession({
             taskId: (args as TaskResumeArgs).task_id,
@@ -115,6 +143,20 @@ function createTaskTool<P extends z.ZodTypeAny>(input: {
             store,
           })
 
+      const childDepth = resolveSessionDepth(store, child.id)
+      if (childDepth > ctx.config.subagent_max_depth) {
+        ctx.events.emit({
+          type: "budget-hit",
+          sessionID: ctx.sessionID,
+          agent: ctx.agent,
+          budget: "subagent_depth",
+          detail: `Subagent depth limit reached at depth ${childDepth}`,
+          limit: ctx.config.subagent_max_depth,
+          used: childDepth,
+        })
+        throw new Error(`Subagent depth limit reached: attempted depth ${childDepth}, max ${ctx.config.subagent_max_depth}`)
+      }
+
       await SessionPrompt.prompt({
         sessionID: child.id,
         text: args.prompt,
@@ -122,9 +164,11 @@ function createTaskTool<P extends z.ZodTypeAny>(input: {
         model,
         format: ctx.format,
       }, {
+        config: ctx.config,
         agent_registry: ctx.agent_registry,
         session_store: ctx.session_store,
         tool_registry: ctx.tool_registry,
+        events: ctx.events,
       })
 
       const lastAssistant = [...child.messages].reverse().find((message) => message.role === "assistant") as
