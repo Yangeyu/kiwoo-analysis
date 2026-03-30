@@ -1,18 +1,21 @@
-import { bootstrapRuntime, runPrompt } from "../src/core/runtime/bootstrap"
+import { createTestRuntime, runPrompt } from "../src/core/runtime/bootstrap"
 import { SessionCompaction } from "../src/core/session/compaction"
-import type { TaskResumeArgs } from "../src/core/tool/task"
+import type { RuntimeEvent } from "../src/core/runtime/events"
+import type { TaskArgs, TaskResumeArgs } from "../src/core/tool/task"
 import { createID, type AssistantMessage, type SessionInfo, type ToolPart, type UserMessage } from "../src/core/types"
 import assert from "node:assert/strict"
 
 process.env.LLM_MODE = "fake"
 process.env.SESSION_STORE = "memory"
 
-const runtime = bootstrapRuntime()
+const runtime = createTestRuntime()
 
 await runInvalidArgsCase()
 await runTaskCase()
 await runTaskResumeCase()
 await runNestedBatchCase()
+await runSessionBudgetCase()
+await runSubagentDepthBudgetCase()
 runCompactionCase()
 
 console.log("smoke:harness ok")
@@ -63,9 +66,11 @@ async function runTaskResumeCase() {
     prompt: "Continue the previous investigation",
     subagent_type: "general",
   }, {
+    config: runtime.config,
     agent_registry: runtime.agent_registry,
     session_store: runtime.session_store,
     tool_registry: runtime.tool_registry,
+    events: runtime.events,
     sessionID: parent.id,
     messageID: createID(),
     agent: "build",
@@ -73,6 +78,7 @@ async function runTaskResumeCase() {
     messages: [],
     metadata: async () => {},
     captureStructuredOutput: async () => {},
+    captureArtifact: async () => {},
   })
 
   assert.match(result.output, new RegExp(`task_id: ${child.id}`))
@@ -93,6 +99,102 @@ async function runNestedBatchCase() {
   assert.match(batchPart.state.output, /\[batch\]/)
   assert.match(batchPart.state.output, /\[grep\]/)
   assert.match(batchPart.state.output, /src\/core\/tool\/task\.ts/)
+}
+
+async function runSessionBudgetCase() {
+  const budgetRuntime = createTestRuntime({
+    config: {
+      session_max_steps: 1,
+    },
+  })
+  const events = collectEvents(budgetRuntime)
+  const session = budgetRuntime.session_store.create({ title: "Session budget smoke" })
+  const model = { providerID: "fake", modelID: "fake" }
+
+  const priorUser: UserMessage = {
+    id: createID(),
+    role: "user",
+    sessionID: session.id,
+    agent: "build",
+    model,
+    time: { created: Date.now() },
+  }
+  budgetRuntime.session_store.appendUserMessage(session.id, priorUser)
+  budgetRuntime.session_store.appendTextPart(session.id, priorUser.id, {
+    id: createID(),
+    type: "text",
+    text: "Initial turn",
+  })
+
+  const priorAssistant: AssistantMessage = {
+    id: createID(),
+    role: "assistant",
+    sessionID: session.id,
+    parentID: priorUser.id,
+    agent: "build",
+    model,
+    finish: "stop",
+    time: { created: Date.now(), completed: Date.now() },
+  }
+  budgetRuntime.session_store.appendAssistantMessage(session.id, priorAssistant)
+  budgetRuntime.session_store.appendTextPart(session.id, priorAssistant.id, {
+    id: createID(),
+    type: "text",
+    text: "First answer",
+  })
+
+  const stopped = await runPrompt({
+    runtime: budgetRuntime,
+    sessionID: session.id,
+    text: "Try another turn after budget is exhausted",
+  })
+
+  const latestAssistant = [...stopped.messages].reverse().find((message) => message.role === "assistant") as AssistantMessage | undefined
+  assert(latestAssistant, "expected assistant message for exhausted session budget")
+  assert.equal(latestAssistant.finish, "stop")
+  assert.match(budgetRuntime.session_store.getMessageText(stopped.id, latestAssistant.id), /total session step budget reached/)
+
+  const event = events.find(isBudgetHitEvent)
+  const sessionBudgetEvent = event && event.budget === "session_steps" ? event : undefined
+  assert(sessionBudgetEvent, "expected session step budget event")
+  assert.equal(sessionBudgetEvent.limit, 1)
+  assert.equal(sessionBudgetEvent.used, 1)
+}
+
+async function runSubagentDepthBudgetCase() {
+  const depthRuntime = createTestRuntime({
+    config: {
+      subagent_max_depth: 0,
+    },
+  })
+  const events = collectEvents(depthRuntime)
+  const parent = depthRuntime.session_store.create({ title: "Depth budget smoke" })
+  const tool = depthRuntime.tool_registry.getTyped<TaskArgs>("task")
+
+  await assert.rejects(() => tool.execute({
+    description: "Delegate beyond depth limit",
+    prompt: "Investigate recursion",
+    subagent_type: "general",
+  }, {
+    config: depthRuntime.config,
+    agent_registry: depthRuntime.agent_registry,
+    session_store: depthRuntime.session_store,
+    tool_registry: depthRuntime.tool_registry,
+    events: depthRuntime.events,
+    sessionID: parent.id,
+    messageID: createID(),
+    agent: "build",
+    abort: new AbortController().signal,
+    messages: [],
+    metadata: async () => {},
+    captureStructuredOutput: async () => {},
+    captureArtifact: async () => {},
+  }), /Subagent depth limit reached/)
+
+  const event = findBudgetHitEvent(events, "subagent_depth")
+  assert(event, "expected subagent depth budget event")
+  assert.equal(event.limit, 0)
+  assert.equal(event.used, 1)
 }
 
 function findToolPart(session: SessionInfo, predicate: (part: ToolPart) => boolean) {
@@ -197,6 +299,7 @@ function runCompactionCase() {
 
   SessionCompaction.process({
     store: runtime.session_store,
+    events: runtime.events,
     session: runtime.session_store.get(session.id),
     trigger: assistant,
     latestUser,
@@ -209,4 +312,22 @@ function runCompactionCase() {
   assert.match(summaryPart.summary, /tool board_snapshot \(Board snapshot: Demo\) \[boardId=board-1, sourceDataId=data-1\]: Loaded board snapshot with 3 items and 2 links/)
   assert.match(summaryPart.summary, /tool task \(Delegate work\) \[taskId=child-1, sessionId=child-1, agentName=general\]: task_id: child-1 agent: general/)
   assert.match(summaryPart.summary, /tool task_resume \(Resume delegated work\) \[taskId=child-1, sessionId=child-1, agentName=general\]: task_id: child-1 agent: general/)
+}
+
+function collectEvents(targetRuntime: { events: { subscribe(listener: (event: RuntimeEvent) => void): () => void } }) {
+  const events: RuntimeEvent[] = []
+  targetRuntime.events.subscribe((event) => {
+    events.push(event)
+  })
+  return events
+}
+
+function isBudgetHitEvent(event: RuntimeEvent): event is Extract<RuntimeEvent, { type: "budget-hit" }> {
+  return event.type === "budget-hit"
+}
+
+function findBudgetHitEvent(events: RuntimeEvent[], budget: Extract<RuntimeEvent, { type: "budget-hit" }>['budget']) {
+  return events.find((event): event is Extract<RuntimeEvent, { type: "budget-hit" }> => {
+    return event.type === "budget-hit" && event.budget === budget
+  })
 }

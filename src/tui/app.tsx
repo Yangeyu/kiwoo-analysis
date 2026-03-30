@@ -1,6 +1,6 @@
-import { bootstrapRuntime, runPrompt } from "@/core/runtime/bootstrap"
+import { runPrompt } from "@/core/runtime/bootstrap"
 import type { RuntimeContext } from "@/core/runtime/context"
-import { RuntimeEvents, type RuntimeEvent } from "@/core/runtime/events"
+import type { RuntimeEvent } from "@/core/runtime/events"
 import type { SessionInfo } from "@/core/types"
 import { TextAttributes } from "@opentui/core"
 import { render, useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/solid"
@@ -54,7 +54,6 @@ export async function startTui(options: TuiOptions) {
     throw new Error("TUI requires an interactive terminal")
   }
 
-  bootstrapRuntime()
   await render(() => <App {...options} />, {
     targetFps: 60,
     gatherStats: false,
@@ -229,7 +228,7 @@ function App(props: TuiOptions) {
   onMount(() => {
     renderer.disableStdoutInterception()
 
-    const unsubscribe = RuntimeEvents.subscribe((event) => {
+    const unsubscribe = runtime.events.subscribe((event) => {
       const rootSessionID = currentSessionID()
 
       if (!rootSessionID && event.type === "session-start") {

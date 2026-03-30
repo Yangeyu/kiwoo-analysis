@@ -13,6 +13,11 @@ export function createToolRegistry(): ToolRegistry {
     tools: new Map<string, AnyToolDefinition>(),
 
     register(tool) {
+      const existing = this.tools.get(tool.id)
+      if (existing === tool) return
+      if (existing) {
+        throw new Error(`Duplicate tool registration: ${tool.id}`)
+      }
       this.tools.set(tool.id, tool)
     },
 

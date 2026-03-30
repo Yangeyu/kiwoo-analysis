@@ -1,4 +1,4 @@
-import { RuntimeEvents } from "@/core/runtime/events"
+import type { RuntimeEventBus } from "@/core/runtime/events"
 import type { ISessionStore } from "@/core/session/store"
 import { createID, type AssistantMessage, type MessagePart, type SessionInfo, type ToolMetadata, type UserMessage } from "@/core/types"
 
@@ -9,6 +9,7 @@ export namespace SessionCompaction {
 
   export function process(input: {
     store: ISessionStore
+    events: RuntimeEventBus
     session: SessionInfo
     trigger: AssistantMessage
     latestUser: UserMessage
@@ -27,7 +28,7 @@ export namespace SessionCompaction {
       summary,
     } as const
 
-    RuntimeEvents.emit({
+    input.events.emit({
       type: "compaction",
       sessionID: input.session.id,
       summary,

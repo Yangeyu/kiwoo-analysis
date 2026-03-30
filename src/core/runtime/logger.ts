@@ -1,5 +1,5 @@
+import type { RuntimeEventBus } from "@/core/runtime/events"
 import type { RuntimeEvent } from "@/core/runtime/events"
-import { RuntimeEvents } from "@/core/runtime/events"
 
 export type OutputMode = "stream" | "buffered"
 
@@ -319,6 +319,20 @@ class ConsoleLogger {
       return
     }
 
+    if (event.type === "retry") {
+      const detail = [event.category, event.reason].filter(Boolean).join(" - ")
+      printLine(style(`[retry ${event.attempt}] ${event.agent} in ${event.delayMs}ms`, ANSI.yellow, ANSI.bold))
+      printLine(style(detail ? `${detail}: ${event.error}` : event.error, ANSI.dim))
+      return
+    }
+
+    if (event.type === "budget-hit") {
+      const usage = event.used !== undefined ? ` (${event.used}/${event.limit})` : ` (${event.limit})`
+      printLine(style(`[budget] ${event.agent} ${event.budget}${usage}`, ANSI.yellow, ANSI.bold))
+      printLine(style(event.detail, ANSI.dim))
+      return
+    }
+
     if (event.type === "tool-start") {
       printLine(`${style("[run]", ANSI.blue, ANSI.bold)} ${event.tool}`)
       return
@@ -393,9 +407,9 @@ class ConsoleLogger {
   }
 }
 
-export function attachConsoleLogger(options: RendererOptions) {
+export function attachConsoleLogger(events: RuntimeEventBus, options: RendererOptions) {
   const logger = new ConsoleLogger(options)
-  const unsubscribe = RuntimeEvents.subscribe(logger.handle)
+  const unsubscribe = events.subscribe(logger.handle)
   return () => {
     unsubscribe()
     logger.detach()

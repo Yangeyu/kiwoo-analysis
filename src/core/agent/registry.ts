@@ -13,6 +13,11 @@ export function createAgentRegistry(): AgentRegistry {
     agents: new Map<string, AgentInfo>(),
 
     register(agent) {
+      const existing = this.agents.get(agent.name)
+      if (existing === agent) return
+      if (existing) {
+        throw new Error(`Duplicate agent registration: ${agent.name}`)
+      }
       this.agents.set(agent.name, agent)
     },
 
