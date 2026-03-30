@@ -33,13 +33,13 @@ src/
 ## 主执行链路
 
 1. `src/index.ts` 解析命令行参数，选择 CLI 或 TUI。
-2. `src/core/runtime/bootstrap.ts` 装配 runtime modules，注册 agents 和 tools。
-3. `src/core/runtime/context.ts` 通过 `src/core/config.ts` 解析配置，并创建 `session_store` 等运行时依赖。
+2. `src/core/runtime/context.ts` 通过 `src/core/config.ts` 解析配置，创建新的 runtime 实例及其 `session_store`、registry、event bus。
+3. `src/core/runtime/bootstrap.ts` 装配 runtime modules，注册 agents 和 tools。
 4. `src/core/session/prompt.ts` 创建 user message，进入外层 loop。
 5. `src/core/session/processor.ts` 调用 `LLM.stream()` 消费 chunk，并把文本、reasoning、tool 调用写回 session。
 6. tool 调用通过 `src/core/tool/*` 执行；`src/core/tool/tool.ts` 中的 harness 统一处理参数校验、hook、错误归一化和结果归一化；`task` 会创建 child session，`task_resume` 会复用已有 child session，并再次进入 `SessionPrompt.prompt()`。
 7. 若模型返回 `length`，`src/core/session/compaction.ts` 会压缩上下文后继续下一轮。
-8. `src/core/runtime/events.ts` 广播事件，由 `src/core/runtime/logger.ts` 或 `src/tui/app.tsx` 渲染执行过程。
+8. runtime 实例上的 `events` 广播事件，由 `src/core/runtime/logger.ts` 或 `src/tui/app.tsx` 订阅并渲染执行过程。
 
 ## 运行时模块装配
 

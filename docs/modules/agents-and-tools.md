@@ -127,6 +127,7 @@ tool metadata key 约定优先使用 `camelCase`，例如：
   - `task`: 创建新的 child session
   - `task_resume`: 复用已有 child session
   - 调用子 agent 再次进入 `SessionPrompt.prompt()`
+  - 创建或续跑 child session 前，会校验 `subagent_max_depth`，避免无限递归委派
   - 支持显式 `intent`（`investigate` / `draft` / `deliver`）
   - 当子 agent 产出最终交付物时，可返回带 `artifactType`、`deliveryMode`、`contentFormat` 的结果 metadata
   - `deliver` + `passthrough` 场景下，父 session 会直接透传产物，而不是继续让主 agent 总结

@@ -12,6 +12,10 @@
 - `src/core/runtime/modules.ts`
 - `src/core/session/prompt.ts`
 - `src/core/session/processor.ts`
+- `src/core/session/processor-context.ts`
+- `src/core/session/assistant-writer.ts`
+- `src/core/session/tool-executor.ts`
+- `src/core/session/turn-state-machine.ts`
 - `src/core/session/tool-part.ts`
 - `src/core/session/store/`
 - `src/core/session/model-message.ts`
@@ -22,13 +26,14 @@
 ## 配置与运行时上下文
 
 - `src/core/config.ts` 只负责环境变量解析、schema 校验、默认值和缓存读取，不负责创建任何运行时依赖。
-- `src/core/runtime/context.ts` 是唯一组合根，负责把 `config`、`session_store`、`agent_registry`、`tool_registry` 等运行时依赖装配成 `RuntimeContext`。
-- `src/core/runtime/bootstrap.ts` 必须先调用 `initRuntimeContext()`，再注册 modules、agents 和 tools。
+- `src/core/runtime/context.ts` 负责创建新的 `RuntimeContext` 实例，把 `config`、`session_store`、`agent_registry`、`tool_registry`、`events` 装配在同一个 runtime 上。
+- `src/core/runtime/execution-policy.ts` 负责把 runtime config 和 agent 约束解析成 turn 级执行策略。
+- `src/core/runtime/bootstrap.ts` 负责把 `RuntimeModules` 注册到传入的 runtime，或通过 `createRuntime()` 一次性创建并装配新的 runtime 实例。
 
 ### RuntimeContext vs RuntimeDeps
 
-- `RuntimeContext` 表示完整运行时，只应由 bootstrap、CLI 入口、TUI 入口这类组合根持有。
-- `RuntimeDeps` 是执行链依赖切片，只包含 `agent_registry`、`session_store`、`tool_registry`，供 `SessionPrompt`、`SessionProcessor`、tool execute context 等内部链路传递。
+- `RuntimeContext` 表示完整运行时，只应由 bootstrap、CLI 入口、TUI 入口这类组合根持有；每次调用 `createRuntime()` 都会得到一套独立实例。
+- `RuntimeDeps` 是执行链依赖切片，包含 `config`、`agent_registry`、`session_store`、`tool_registry`、`events`，供 `SessionPrompt`、`SessionProcessor`、tool execute context 等内部链路传递。
 - `runPrompt()` 现在要求调用方显式传入 `runtime`，不再负责隐式初始化运行时。
 - 规则上，能拿 `RuntimeDeps` 的地方就不要持有 `RuntimeContext`；只有需要创建/装配/启动运行时的边界模块才应该碰 `RuntimeContext`。
 
@@ -37,17 +42,18 @@
 - 不要在业务模块里直接 new store/provider 等具体实现。
 - 不要在 `config.ts` 里新增 `initXxx()` 风格的启动逻辑。
 - 新的全局运行时依赖应优先接入 `RuntimeContext`，而不是再引入新的模块级单例。
-- `AgentRegistry` / `ToolRegistry` 不再作为全局模块状态存在。
-- `getRuntimeContext()` 只应留在运行时初始化模块内部；核心执行链必须通过 `RuntimeDeps` 显式传递依赖。
+- `AgentRegistry` / `ToolRegistry` / `RuntimeEventBus` 都应属于某个 runtime 实例，而不是进程级全局状态。
+- 核心执行链必须通过 `RuntimeDeps` 显式传递依赖，不要回退到隐式 `getRuntimeContext()` 风格访问。
 
 ## Runtime bootstrap
 
-`src/core/runtime/bootstrap.ts` 在首次启动时遍历 `RuntimeModules`：
+`src/core/runtime/bootstrap.ts` 现在按 runtime 实例遍历 `RuntimeModules`：
 
-- 初始化 `RuntimeContext`
+- 创建新的 `RuntimeContext`
+- 对 module 名称做重复保护，并保证同一个 runtime 上的重复注册是幂等的
 - 向 `RuntimeContext.tool_registry` 注册每个模块暴露的 tools
 - 向 `RuntimeContext.agent_registry` 注册每个模块暴露的 agents
-- 保证 bootstrap 只执行一次
+- 返回这套已装配完成的 runtime，供 CLI、TUI、测试或脚本独立使用
 
 这让 core/board 之类的能力以模块方式接入，而不是散落在入口文件里。
 
@@ -79,6 +85,39 @@
 
 它不负责决定是否开始下一轮，只返回 `continue | stop | compact` 给外层 loop。
 
+当前内部实现已按职责拆成几个协作对象：
+
+- `processor.ts` 只保留 turn orchestration、stream loop 与重试控制
+- `execution-policy.ts` 统一提供 retry、timeout、step/tool budgets、repeated failure threshold
+- `processor-context.ts` 集中维护 step 执行上下文与结果判定
+- `turn-state-machine.ts` 负责 phase 迁移和 turn lifecycle events
+- `assistant-writer.ts` 负责 assistant message / text / reasoning / artifact 写回
+- `tool-executor.ts` 负责 tool-call 的校验、执行、失败策略与 tool context 组装
+
+这样把“流程编排”“状态切换”“持久化写操作”“工具执行”分开，避免 processor 本身继续膨胀。
+
+当前 runtime event 流属于 `runtime.events`，会在模型调用发生可重试错误时发出 `retry` 事件，包含 `attempt`、`delayMs`、`category`、`reason` 和错误消息，方便 logger 或上层观察重试行为。
+
+当 execution policy 命中 budget 上限时，还会发出 `budget-hit` 事件：
+
+- `session_steps`: 整个 session 的累计 assistant turn 用尽
+- `agent_steps`: 当前 prompt loop 的 agent step 用尽
+- `subagent_depth`: child session 嵌套深度超限
+- `tool_calls`: 单 turn tool call 数超限
+- `tool_failures`: 相同 tool failure 连续触发阈值
+
+当前 turn 执行策略统一从 runtime config 解析：
+
+- retry: `model_max_retries`、`model_retry_base_delay_ms`、`model_retry_max_delay_ms`
+- timeout: `turn_timeout_ms`
+- budget: `agent.steps`、`session_max_steps`、`turn_max_tool_calls`、`repeated_tool_failure_threshold`、`subagent_max_depth`
+
+其中：
+
+- `agent.steps` 仍然表示单次 prompt loop 的 agent step 上限。
+- `session_max_steps` 表示整个 session 生命周期内累计 assistant turns 的总预算；继续复用同一个 session 时，会扣减已用 budget。
+- `subagent_max_depth` 表示 child session 的最大嵌套深度；root session depth 为 `0`，第一层 subagent child 为 `1`。
+
 ## SessionStore: Store 接口与运行时适配
 
 `src/core/session/store/` 现在分成三层：
@@ -87,7 +126,7 @@
 - `memory.ts` / `file.ts`: 具体实现
 - `factory.ts`: 根据配置创建 store
 
-运行时默认通过 `RuntimeContext.session_store` 持有实际 store，业务模块通过显式依赖或 `getRuntimeContext()` 读取该 store。
+运行时默认通过 `RuntimeContext.session_store` 持有实际 store，业务模块通过显式依赖读取该 store，而不是从模块级单例反查。
 
 store 负责维护 session 状态：
 

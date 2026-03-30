@@ -16,7 +16,8 @@
 `src/index.ts` 负责：
 
 - 解析 `--agent`、`--json`、`--tui`、`--output`。
-- 在启动时调用 `bootstrapRuntime()` 完成模块注册。
+- 在启动时调用 `createRuntime()` 创建并装配新的 runtime 实例。
+- 测试和 smoke 脚本可调用 `createTestRuntime()`，默认使用 memory store 并支持覆写 config/modules。
 - 无 prompt 且在交互终端中时，默认进入 TUI。
 - 有 prompt 时，通过 `runPrompt()` 触发一次完整 session turn。
 
@@ -30,7 +31,7 @@
 
 ## 事件驱动渲染
 
-`src/core/runtime/events.ts` 是运行时事件总线，CLI logger 与 TUI 都依赖它订阅状态变化。
+`src/core/runtime/events.ts` 提供 runtime-scoped 事件总线工厂，CLI logger 与 TUI 都通过 `runtime.events` 订阅状态变化。
 
 典型事件包括：
 

@@ -137,6 +137,10 @@ Optional overrides:
 - `QWEN_BASE_URL` defaults to `https://dashscope.aliyuncs.com/compatible-mode/v1`
 - `LLM_MODE=fake` forces deterministic local behavior
 - `LLM_MODE=qwen` forces remote Qwen mode
+- `MODEL_MAX_RETRIES`, `MODEL_RETRY_BASE_DELAY_MS`, `MODEL_RETRY_MAX_DELAY_MS` tune model retry behavior
+- `SESSION_MAX_STEPS` caps total assistant turns across a session
+- `SUBAGENT_MAX_DEPTH` caps child-session delegation depth
+- `TURN_TIMEOUT_MS`, `TURN_MAX_TOOL_CALLS`, `REPEATED_TOOL_FAILURE_THRESHOLD` tune per-turn execution limits
 
 Useful smoke checks:
 
