@@ -3,8 +3,9 @@ import type { RuntimeContext } from "@/core/runtime/context"
 import type { RuntimeEvent } from "@/core/runtime/events"
 import type { SessionInfo } from "@/core/types"
 import { TextAttributes } from "@opentui/core"
-import { render, useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/solid"
+import { render, useKeyboard, useRenderer, useTerminalDimensions, useSelectionHandler } from "@opentui/solid"
 import { ErrorBoundary, For, Show, createEffect, createMemo, createSignal, onCleanup, onMount, type Setter } from "solid-js"
+import { spawn } from "node:child_process"
 
 type TuiOptions = {
   runtime: RuntimeContext
@@ -33,20 +34,20 @@ type TraceEntry = {
 }
 
 const COLORS = {
-  app: "#08111f",
-  sidebar: "#0d1727",
-  panel: "#0f1b2e",
-  panelSoft: "#13233a",
-  panelAccent: "#0c3144",
-  border: "#27445f",
-  borderStrong: "#3b82a4",
-  text: "#eef6ff",
-  muted: "#91a4bb",
-  accent: "#7dd3fc",
-  info: "#93c5fd",
-  success: "#86efac",
-  warning: "#fcd34d",
-  danger: "#fda4af",
+  app: "#0a0a0a",
+  sidebar: "#141414",
+  panel: "#1e1e1e",
+  panelSoft: "#282828",
+  panelAccent: "#323232",
+  border: "#3c3c3c",
+  borderStrong: "#484848",
+  text: "#eeeeee",
+  muted: "#808080",
+  accent: "#fab283",
+  info: "#56b6c2",
+  success: "#7fd88f",
+  warning: "#f5a742",
+  danger: "#e06c75",
 }
 
 export async function startTui(options: TuiOptions) {
@@ -228,8 +229,17 @@ function App(props: TuiOptions) {
   onMount(() => {
     renderer.disableStdoutInterception()
 
-    const unsubscribe = runtime.events.subscribe((event) => {
-      const rootSessionID = currentSessionID()
+    useSelectionHandler((selection) => {
+      const text = selection.getSelectedText()
+      if (text && process.platform === "darwin") {
+        const proc = spawn("pbcopy")
+        proc.stdin.write(text)
+        proc.stdin.end()
+        setNotice("Text copied to clipboard")
+      }
+    })
+
+    const unsubscribe = runtime.events.subscribe((event) => {      const rootSessionID = currentSessionID()
 
       if (!rootSessionID && event.type === "session-start") {
         setCurrentSessionID(event.sessionID)
@@ -281,31 +291,29 @@ function App(props: TuiOptions) {
   return (
     <ErrorBoundary fallback={(error, reset) => <CrashView error={error} onReset={reset} />}>
       <box width={term().width} height={term().height} backgroundColor={COLORS.app} flexDirection="row">
-        <Sidebar
-          width={26}
-          sessions={sessions()}
-          currentSessionID={currentSessionID()}
-          selectedAgent={selectedAgent()}
-          activity={activity()}
-          notice={notice()}
-          onSelectSession={setCurrentSessionID}
-        />
-        <box flexGrow={1} flexDirection="column" padding={1} gap={1}>
+        <box flexGrow={1} flexDirection="column" paddingLeft={2} paddingTop={1} paddingBottom={1}>
           <scrollbox
             flexGrow={1}
             stickyScroll
             stickyStart="bottom"
-            border
-            borderColor={COLORS.borderStrong}
-            backgroundColor={COLORS.panel}
-            padding={1}
+            backgroundColor={COLORS.app}
           >
             <Show when={visibleTranscript().length > 0} fallback={<WelcomeCard />}>
               <box flexDirection="column" gap={1}>
-                <For each={visibleTranscript()}>{(entry) => <TraceEntryBlock store={store} entry={entry} expanded={Boolean(entry.expanded)} onToggle={() => toggleExpanded(entry.id)} />}</For>
+                <For each={visibleTranscript()}>
+                  {(entry) => (
+                    <TraceEntryBlock 
+                      store={store} 
+                      entry={entry} 
+                      expanded={Boolean(entry.expanded)} 
+                      onToggle={() => toggleExpanded(entry.id)} 
+                    />
+                  )}
+                </For>
               </box>
             </Show>
           </scrollbox>
+          <box height={1} />
           <ComposerCard
             ref={(value) => {
               composerRef = value as { focus?: () => void }
@@ -314,8 +322,33 @@ function App(props: TuiOptions) {
             busy={activity().busy}
             onChange={setDraft}
             onSubmit={() => void submitPrompt(draft())}
+            selectedAgent={selectedAgent()}
+            activityStatus={activity().status}
           />
+          <box flexDirection="row" justifyContent="flex-end" paddingTop={1} paddingRight={1} gap={2}>
+            <box flexDirection="row" gap={1}>
+              <text fg={COLORS.muted}>tab</text>
+              <text fg={COLORS.text}>agents</text>
+            </box>
+            <box flexDirection="row" gap={1}>
+              <text fg={COLORS.muted}>ctrl+n</text>
+              <text fg={COLORS.text}>new</text>
+            </box>
+            <box flexDirection="row" gap={1}>
+              <text fg={COLORS.muted}>ctrl+j/k</text>
+              <text fg={COLORS.text}>sessions</text>
+            </box>
+          </box>
         </box>
+        <Sidebar
+          width={32}
+          sessions={sessions()}
+          currentSessionID={currentSessionID()}
+          selectedAgent={selectedAgent()}
+          activity={activity()}
+          notice={notice()}
+          onSelectSession={setCurrentSessionID}
+        />
       </box>
     </ErrorBoundary>
   )
@@ -330,69 +363,59 @@ function Sidebar(props: {
   notice?: string
   onSelectSession: (sessionID: string) => void
 }) {
+  const currentSession = () => props.sessions.find(s => s.id === props.currentSessionID)
+
   return (
     <box
       width={props.width}
       height="100%"
       flexDirection="column"
-      backgroundColor={COLORS.sidebar}
-      border
-      borderColor={COLORS.border}
-      padding={1}
-      gap={1}
+      backgroundColor={COLORS.app}
+      paddingLeft={3}
+      paddingRight={2}
+      paddingTop={1}
+      paddingBottom={1}
+      gap={2}
     >
-      <SidebarPanel title="Agent">
-        <text fg={COLORS.text} attributes={TextAttributes.BOLD}>{props.selectedAgent}</text>
-        <text fg={props.activity.busy ? COLORS.warning : COLORS.muted}>{props.activity.status}</text>
+      <SidebarPanel title={currentSession()?.title ?? "Session"}>
         <Show when={props.notice}>
           <text fg={COLORS.info}>{props.notice}</text>
         </Show>
       </SidebarPanel>
+      
+      <box>
+        <text fg={COLORS.text} attributes={TextAttributes.BOLD}>Context</text>
+        <text fg={COLORS.muted}>Session context active</text>
+      </box>
+
       <SidebarPanel title="Sessions" grow>
         <Show when={props.sessions.length > 0} fallback={<text fg={COLORS.muted}>No sessions yet</text>}>
-          <box flexDirection="column" gap={1}>
+          <scrollbox flexDirection="column" gap={1}>
             <For each={props.sessions}>
               {(session) => (
-                <box
-                  border
-                  borderColor={session.id === props.currentSessionID ? COLORS.borderStrong : COLORS.border}
-                  backgroundColor={session.id === props.currentSessionID ? COLORS.panelAccent : COLORS.panelSoft}
-                  padding={1}
-                  onMouseUp={() => props.onSelectSession(session.id)}
-                >
-                  <text fg={COLORS.text} attributes={session.id === props.currentSessionID ? TextAttributes.BOLD : TextAttributes.NONE}>
-                    {session.id === props.currentSessionID ? `> ${session.title}` : session.title}
+                <box onMouseUp={() => props.onSelectSession(session.id)}>
+                  <text fg={session.id === props.currentSessionID ? COLORS.text : COLORS.muted} attributes={session.id === props.currentSessionID ? TextAttributes.BOLD : TextAttributes.NONE}>
+                    {session.title}
                   </text>
                 </box>
               )}
             </For>
-          </box>
+          </scrollbox>
         </Show>
       </SidebarPanel>
-      <SidebarPanel title="Keys">
-        <text fg={COLORS.muted}>Enter submit</text>
-        <text fg={COLORS.muted}>Tab switch agent</text>
-        <text fg={COLORS.muted}>Ctrl+N new session</text>
-        <text fg={COLORS.muted}>Ctrl+J/K sessions</text>
-        <text fg={COLORS.muted}>Esc cancel</text>
-        <text fg={COLORS.muted}>Ctrl+C cancel or exit</text>
-      </SidebarPanel>
+
+      <box paddingTop={2} borderTop borderTopColor={COLORS.border} flexDirection="row" gap={1}>
+        <text fg={COLORS.muted}>•</text>
+        <text fg={COLORS.muted}>Agentic Runtime</text>
+      </box>
     </box>
   )
 }
 
 function SidebarPanel(props: { title: string; children: unknown; grow?: boolean }) {
   return (
-    <box
-      flexDirection="column"
-      border
-      borderColor={COLORS.border}
-      backgroundColor={COLORS.panel}
-      padding={1}
-      gap={1}
-      flexGrow={props.grow ? 1 : undefined}
-    >
-      <text fg={COLORS.accent} attributes={TextAttributes.BOLD}>{props.title}</text>
+    <box flexDirection="column" gap={1} flexGrow={props.grow ? 1 : undefined}>
+      <text fg={COLORS.text} attributes={TextAttributes.BOLD}>{props.title}</text>
       {props.children}
     </box>
   )
@@ -400,11 +423,11 @@ function SidebarPanel(props: { title: string; children: unknown; grow?: boolean 
 
 function WelcomeCard() {
   return (
-    <SectionCard title="Transcript" borderColor={COLORS.borderStrong} titleColor={COLORS.accent}>
+    <box flexDirection="column" gap={1}>
+      <text fg={COLORS.text} attributes={TextAttributes.BOLD}>Transcript</text>
       <text fg={COLORS.text}>Ready to chat.</text>
       <text fg={COLORS.muted}>Trace output is flattened by execution path and updates live as tools and subagents run.</text>
-      <text fg={COLORS.muted}>Long intermediate output stays collapsed until you expand a trace row.</text>
-    </SectionCard>
+    </box>
   )
 }
 
@@ -414,23 +437,28 @@ function ComposerCard(props: {
   busy: boolean
   onChange: (value: string) => void
   onSubmit: () => void
+  selectedAgent: string
+  activityStatus: string
 }) {
   return (
-    <box height={5} border borderColor={COLORS.borderStrong} backgroundColor={COLORS.panel} padding={1} flexDirection="column" gap={1}>
-      <text fg={COLORS.accent} attributes={TextAttributes.BOLD}>{props.busy ? "Prompt · running" : "Prompt"}</text>
-      <input
-        ref={props.ref}
-        focused
-        value={props.draft}
-        placeholder={props.busy ? "Working... press Esc to cancel" : "Ask anything and press Enter to submit"}
-        backgroundColor={COLORS.panelAccent}
-        textColor={COLORS.text}
-        placeholderColor={COLORS.muted}
-        onInput={props.onChange}
-        onSubmit={() => {
-          if (!props.busy) props.onSubmit()
-        }}
-      />
+    <box flexDirection="column" gap={1}>
+      <box height={3} backgroundColor={COLORS.panelAccent} paddingLeft={2} paddingRight={2} justifyContent="center">
+        <input
+          ref={props.ref}
+          focused
+          value={props.draft}
+          placeholder={props.busy ? "Agent is working..." : ""}
+          textColor={COLORS.text}
+          placeholderColor={COLORS.muted}
+          onInput={props.onChange}
+          onSubmit={() => {
+            if (!props.busy) props.onSubmit()
+          }}
+        />
+      </box>
+      <box flexDirection="row" gap={1} paddingLeft={1}>
+        <text fg={COLORS.accent} attributes={TextAttributes.BOLD}>{props.selectedAgent}</text>
+      </box>
     </box>
   )
 }
@@ -445,27 +473,41 @@ function TraceEntryBlock(props: {
   const collapsible = Boolean(props.entry.detail) && !isTopLevelAnswer && props.entry.kind !== "result"
   const body = collapsible && props.expanded ? props.entry.detail ?? props.entry.text : props.entry.text
 
+  const handleCopy = () => {
+    const text = props.entry.detail ?? props.entry.text
+    if (process.platform === "darwin") {
+      const proc = spawn("pbcopy")
+      proc.stdin.write(text)
+      proc.stdin.end()
+    }
+  }
+
   return (
-    <box flexDirection="row" gap={1}>
-      <box width={1} backgroundColor={props.entry.color} />
-      <box flexDirection="column" gap={1} flexGrow={1}>
-        <text fg={props.entry.color} attributes={TextAttributes.BOLD}>{props.entry.title}</text>
-        <Show when={props.entry.status}>
-          <text fg={COLORS.muted}>{props.entry.status}</text>
-        </Show>
-        <text fg={props.entry.kind === "answer" || props.entry.kind === "result" ? COLORS.text : COLORS.muted}>{body || " "}</text>
-        <Show when={collapsible}>
-          <box
-            border
-            borderColor={COLORS.border}
-            backgroundColor={COLORS.panelAccent}
-            paddingLeft={1}
-            paddingRight={1}
-            onMouseUp={props.onToggle}
-          >
-            <text fg={COLORS.info} attributes={TextAttributes.BOLD}>{props.expanded ? "Hide details" : "Show details"}</text>
+    <box flexDirection="column" gap={0}>
+      <box flexDirection="row" gap={1}>
+        <text fg={props.entry.color}>•</text>
+        <box flexDirection="column" flexGrow={1}>
+          <box flexDirection="row" gap={1}>
+            <text fg={props.entry.color}>{props.entry.title}</text>
+            <Show when={props.entry.status}>
+              <text fg={COLORS.muted}>{props.entry.status}</text>
+            </Show>
           </box>
-        </Show>
+          <box>
+            <text selectable fg={props.entry.kind === "answer" || props.entry.kind === "result" ? COLORS.text : COLORS.muted}>{body || " "}</text>
+          </box>
+
+          <box flexDirection="row" gap={2} marginTop={1}>
+            <Show when={collapsible}>
+              <box onMouseUp={props.onToggle}>
+                <text fg={COLORS.muted}>[ {props.expanded ? "Hide details" : "Show details"} ]</text>
+              </box>
+            </Show>
+            <box onMouseUp={handleCopy}>
+              <text fg={COLORS.muted}>[ Copy ]</text>
+            </box>
+          </box>
+        </box>
       </box>
     </box>
   )
