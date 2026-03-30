@@ -1,5 +1,5 @@
 import { attachConsoleLogger, type OutputMode } from "@/core/runtime/logger"
-import { bootstrapRuntime, runPrompt } from "@/core/runtime/bootstrap"
+import { createRuntime, runPrompt } from "@/core/runtime/bootstrap"
 import { startTui } from "@/tui/app"
 
 function parseArgs(argv: string[]) {
@@ -43,7 +43,7 @@ function parseArgs(argv: string[]) {
 }
 
 async function main() {
-  const runtime = bootstrapRuntime()
+  const runtime = createRuntime()
   const parsed = parseArgs(process.argv.slice(2))
   const defaultAgent = runtime.agent_registry.defaultAgent().name
   const canLaunchTui = process.stdin.isTTY && process.stdout.isTTY
@@ -76,7 +76,7 @@ async function main() {
     return
   }
 
-  const detach = attachConsoleLogger({ outputMode: parsed.outputMode })
+  const detach = attachConsoleLogger(runtime.events, { outputMode: parsed.outputMode })
   try {
     await runPrompt({
       runtime,

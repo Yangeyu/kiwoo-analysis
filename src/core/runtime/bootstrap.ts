@@ -1,16 +1,40 @@
-import { initRuntimeContext, type RuntimeContext } from "@/core/runtime/context"
+import { createRuntimeContext, type RuntimeContext } from "@/core/runtime/context"
 import { RuntimeModules } from "@/core/runtime/modules"
 import { SessionPrompt } from "@/core/session/prompt"
-import type { UserMessage } from "@/core/types"
+import { loadConfigFromEnv, type Config } from "@/core/config"
+import type { RuntimeModule, UserMessage } from "@/core/types"
 
-let bootstrapped = false
+const runtimeModuleState = new WeakMap<RuntimeContext, Map<string, RuntimeModule>>()
 
-export function bootstrapRuntime() {
-  const runtime = initRuntimeContext()
-  if (bootstrapped) return runtime
-  bootstrapped = true
+function registeredModulesFor(runtime: RuntimeContext) {
+  const existing = runtimeModuleState.get(runtime)
+  if (existing) return existing
+  const created = new Map<string, RuntimeModule>()
+  runtimeModuleState.set(runtime, created)
+  return created
+}
 
-  for (const module of RuntimeModules) {
+function assertNoDuplicateModules(modules: RuntimeModule[]) {
+  const seen = new Set<string>()
+  for (const module of modules) {
+    if (seen.has(module.name)) {
+      throw new Error(`Duplicate runtime module registration: ${module.name}`)
+    }
+    seen.add(module.name)
+  }
+}
+
+export function registerRuntimeModules(runtime: RuntimeContext, modules: RuntimeModule[] = RuntimeModules) {
+  assertNoDuplicateModules(modules)
+  const registered = registeredModulesFor(runtime)
+
+  for (const module of modules) {
+    const prior = registered.get(module.name)
+    if (prior === module) continue
+    if (prior) {
+      throw new Error(`Runtime already registered a different module named ${module.name}`)
+    }
+
     for (const tool of module.tools ?? []) {
       runtime.tool_registry.register(tool)
     }
@@ -18,9 +42,30 @@ export function bootstrapRuntime() {
     for (const agent of module.agents ?? []) {
       runtime.agent_registry.register(agent)
     }
+
+    registered.set(module.name, module)
   }
 
   return runtime
+}
+
+export function createRuntime(options?: { config?: Config; modules?: RuntimeModule[] }) {
+  return registerRuntimeModules(createRuntimeContext(options?.config), options?.modules)
+}
+
+export function createTestRuntime(options?: { config?: Partial<Config>; modules?: RuntimeModule[] }) {
+  const config = {
+    ...loadConfigFromEnv({
+      ...process.env,
+      SESSION_STORE: "memory",
+    }),
+    ...(options?.config ?? {}),
+  }
+
+  return createRuntime({
+    config,
+    modules: options?.modules,
+  })
 }
 
 export async function runPrompt(options: {
@@ -33,7 +78,6 @@ export async function runPrompt(options: {
   abort?: AbortSignal
 }) {
   const { runtime } = options
-  bootstrapRuntime()
   const session = options.sessionID
     ? runtime.session_store.get(options.sessionID)
     : runtime.session_store.create({ title: "CLI session" })
