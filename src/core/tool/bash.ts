@@ -4,10 +4,14 @@ import { defineTool } from "@/core/tool/tool"
 import { z } from "zod"
 
 export const BashParameters = z.object({
-  command: z.string().trim().min(1),
-  workdir: z.string().trim().min(1).optional(),
-  timeout: z.number().int().nonnegative().optional(),
-  description: z.string().trim().min(1).optional(),
+  command: z.string().trim().min(1)
+    .describe("The shell command to execute"),
+  workdir: z.string().trim().min(1).optional()
+    .describe("The working directory to run the command in"),
+  timeout: z.number().int().nonnegative().optional()
+    .describe("Maximum execution time in milliseconds"),
+  description: z.string().trim().min(1).optional()
+    .describe("A brief explanation of what this command is doing"),
 })
 
 export type BashArgs = z.infer<typeof BashParameters>

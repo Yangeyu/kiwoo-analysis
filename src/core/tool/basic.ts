@@ -4,13 +4,15 @@ import { defineTool } from "@/core/tool/tool"
 import { z } from "zod"
 
 export const ReadParameters = z.object({
-  filePath: z.string().trim().min(1),
+  filePath: z.string().trim().min(1)
+    .describe("The path to the file to read"),
 })
 
 export type ReadArgs = z.infer<typeof ReadParameters>
 
 export const GrepParameters = z.object({
-  pattern: z.string().trim().min(1),
+  pattern: z.string().trim().min(1)
+    .describe("The regex pattern to search for in the codebase"),
 })
 
 export type GrepArgs = z.infer<typeof GrepParameters>

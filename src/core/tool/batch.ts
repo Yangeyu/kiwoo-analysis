@@ -5,11 +5,14 @@ export const BatchParameters = z.object({
   tool_calls: z
     .array(
       z.object({
-        tool: z.string().trim().min(1),
-        parameters: z.record(z.string(), z.unknown()),
+        tool: z.string().trim().min(1)
+          .describe("The name of the tool to call"),
+        parameters: z.record(z.string(), z.unknown())
+          .describe("The arguments to pass to the tool"),
       }),
     )
-    .min(1),
+    .min(1)
+    .describe("A list of tool calls to execute in parallel"),
 })
 
 export type BatchArgs = z.infer<typeof BatchParameters>

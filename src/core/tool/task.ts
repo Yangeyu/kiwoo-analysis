@@ -12,18 +12,27 @@ import type {
 import { z } from "zod"
 
 const BaseTaskParameters = {
-  description: z.string().trim().min(3).max(120),
-  prompt: z.string().trim().min(1),
-  subagent_type: z.string().trim().min(1),
-  intent: z.enum(["investigate", "draft", "deliver"]).default("investigate"),
-  artifact_type: z.string().trim().min(1).max(80).optional(),
-  content_format: z.enum(["markdown", "text", "json"]).optional(),
+  description: z.string().trim().min(3).max(120)
+    .describe("A high-level explanation of the subtask"),
+  prompt: z.string().trim().min(1)
+    .describe("The detailed instructions for the subagent"),
+  subagent_type: z.string().trim().min(1)
+    .describe("The name of the agent to delegate to"),
+  intent: z
+    .enum(["investigate", "draft", "deliver"])
+    .default("investigate")
+    .describe("The goal of the delegation (investigate: explore, draft: create content, deliver: finalize work)"),
+  artifact_type: z.string().trim().min(1).max(80).optional()
+    .describe("The type of artifact expected (only for deliver intent)"),
+  content_format: z.enum(["markdown", "text", "json"]).optional()
+    .describe("The format of the artifact content"),
 }
 
 export const TaskParameters = z.object(BaseTaskParameters)
 export const TaskResumeParameters = z.object({
   ...BaseTaskParameters,
-  task_id: z.string().trim().min(1),
+  task_id: z.string().trim().min(1)
+    .describe("The ID of the session to resume"),
 })
 
 export type TaskArgs = z.infer<typeof TaskParameters>
