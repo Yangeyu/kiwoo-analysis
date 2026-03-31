@@ -1,11 +1,14 @@
 import { runPrompt } from "@/core/runtime/bootstrap"
+import { resolveModelSpec } from "@/core/llm/models"
 import type { RuntimeContext } from "@/core/runtime/context"
 import type { RuntimeEvent } from "@/core/runtime/events"
 import type { SessionInfo } from "@/core/types"
-import { TextAttributes } from "@opentui/core"
+import { TextAttributes, type TextareaRenderable } from "@opentui/core"
 import { render, useKeyboard, useRenderer, useTerminalDimensions, useSelectionHandler } from "@opentui/solid"
 import { ErrorBoundary, For, Show, createEffect, createMemo, createSignal, onCleanup, onMount, type Setter } from "solid-js"
 import { spawn } from "node:child_process"
+import { appendPromptHistory, loadPromptHistory, type PromptHistoryEntry } from "@/tui/prompt-history"
+import { getTextareaKeybindings } from "@/tui/textarea-keybindings"
 
 type TuiOptions = {
   runtime: RuntimeContext
@@ -33,6 +36,12 @@ type TraceEntry = {
   expanded?: boolean
 }
 
+type ComposerHandle = {
+  clear: () => void
+  focus: () => void
+  value: () => string
+}
+
 const COLORS = {
   app: "#0a0a0a",
   sidebar: "#141414",
@@ -48,6 +57,58 @@ const COLORS = {
   success: "#7fd88f",
   warning: "#f5a742",
   danger: "#e06c75",
+}
+
+const PROMPT_PLACEHOLDERS = [
+  "read src/core/session/prompt.ts and explain the loop",
+  "investigate why the TUI stops streaming after a tool call",
+  "refactor the runtime bootstrap with smaller boundaries",
+  "review the latest session flow changes for regressions",
+]
+
+const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+const PROMPT_MAX_HEIGHT = 6
+
+function titleCase(value: string) {
+  return value.slice(0, 1).toUpperCase() + value.slice(1)
+}
+
+function agentAccent(name: string) {
+  const palette = [COLORS.accent, COLORS.info, COLORS.success, COLORS.warning, "#c792ea"]
+  const hash = [...name].reduce((sum, char) => sum + char.charCodeAt(0), 0)
+  return palette[hash % palette.length]
+}
+
+function charDisplayWidth(char: string) {
+  const code = char.codePointAt(0) ?? 0
+  if (code === 0) return 0
+  if (code <= 0x1f || (code >= 0x7f && code <= 0x9f)) return 0
+  return code > 0xff ? 2 : 1
+}
+
+function estimateVisualLines(text: string, width: number) {
+  const safeWidth = Math.max(1, width)
+  const lines = text.split("\n")
+  let total = 0
+
+  for (const line of lines) {
+    let currentWidth = 0
+    let wrapped = 1
+
+    for (const char of line) {
+      const nextWidth = currentWidth + charDisplayWidth(char)
+      if (nextWidth > safeWidth) {
+        wrapped += 1
+        currentWidth = charDisplayWidth(char)
+        continue
+      }
+      currentWidth = nextWidth
+    }
+
+    total += wrapped
+  }
+
+  return Math.max(1, total)
 }
 
 export async function startTui(options: TuiOptions) {
@@ -71,7 +132,6 @@ function App(props: TuiOptions) {
   const term = useTerminalDimensions()
   const [selectedAgent, setSelectedAgent] = createSignal(resolveInitialAgent(runtime.agent_registry, props.agent))
   const [currentSessionID, setCurrentSessionID] = createSignal<string | undefined>()
-  const [draft, setDraft] = createSignal(props.autoSubmitInitial ? "" : props.initialPrompt ?? "")
   const [activity, setActivity] = createSignal<ActivityState>({
     phase: "idle",
     status: "Ready",
@@ -82,7 +142,7 @@ function App(props: TuiOptions) {
   const [traceEntries, setTraceEntries] = createSignal<TraceEntry[]>([])
 
   let abort: AbortController | undefined
-  let composerRef: { focus?: () => void } | undefined
+  let composerRef: ComposerHandle | undefined
   let traceCount = 0
   const sessionPaths = new Map<string, string[]>()
   const activeTurns = new Map<string, { messageID: string; agent: string; reasoningEntryID?: string; answerEntryID?: string }>()
@@ -145,7 +205,6 @@ function App(props: TuiOptions) {
 
     const nextSession = session() ?? createSession(text)
     abort = new AbortController()
-    setDraft("")
     setNotice(undefined)
     setActivity({
       phase: "starting",
@@ -172,7 +231,7 @@ function App(props: TuiOptions) {
       abort = undefined
     } finally {
       refresh()
-      composerRef?.focus?.()
+      composerRef?.focus()
     }
   }
 
@@ -180,6 +239,10 @@ function App(props: TuiOptions) {
     if (event.ctrl && event.name === "c") {
       if (activity().busy) {
         cancelTurn()
+      } else if ((composerRef?.value() ?? "").length > 0) {
+        composerRef?.clear()
+        setNotice("Cleared draft")
+        composerRef?.focus()
       } else {
         renderer.destroy()
       }
@@ -190,9 +253,9 @@ function App(props: TuiOptions) {
 
     if (event.ctrl && event.name === "n") {
       createSession()
-      setDraft("")
+      composerRef?.clear()
       setNotice("Started a new session")
-      composerRef?.focus?.()
+      composerRef?.focus()
       event.preventDefault()
       event.stopPropagation()
       return
@@ -285,7 +348,7 @@ function App(props: TuiOptions) {
 
   createEffect(() => {
     revision()
-    queueMicrotask(() => composerRef?.focus?.())
+    queueMicrotask(() => composerRef?.focus())
   })
 
   return (
@@ -316,29 +379,14 @@ function App(props: TuiOptions) {
           <box height={1} />
           <ComposerCard
             ref={(value) => {
-              composerRef = value as { focus?: () => void }
+              composerRef = value as ComposerHandle
             }}
-            draft={draft()}
             busy={activity().busy}
-            onChange={setDraft}
-            onSubmit={() => void submitPrompt(draft())}
+            onSubmit={submitPrompt}
             selectedAgent={selectedAgent()}
             activityStatus={activity().status}
+            initialValue={props.autoSubmitInitial ? "" : props.initialPrompt ?? ""}
           />
-          <box flexDirection="row" justifyContent="flex-end" paddingTop={1} paddingRight={1} gap={2}>
-            <box flexDirection="row" gap={1}>
-              <text fg={COLORS.muted}>tab</text>
-              <text fg={COLORS.text}>agents</text>
-            </box>
-            <box flexDirection="row" gap={1}>
-              <text fg={COLORS.muted}>ctrl+n</text>
-              <text fg={COLORS.text}>new</text>
-            </box>
-            <box flexDirection="row" gap={1}>
-              <text fg={COLORS.muted}>ctrl+j/k</text>
-              <text fg={COLORS.text}>sessions</text>
-            </box>
-          </box>
         </box>
         <Sidebar
           width={32}
@@ -404,7 +452,7 @@ function Sidebar(props: {
         </Show>
       </SidebarPanel>
 
-      <box paddingTop={2} borderTop borderTopColor={COLORS.border} flexDirection="row" gap={1}>
+      <box paddingTop={2} border={["top"]} borderColor={COLORS.border} flexDirection="row" gap={1}>
         <text fg={COLORS.muted}>•</text>
         <text fg={COLORS.muted}>Agentic Runtime</text>
       </box>
@@ -433,31 +481,230 @@ function WelcomeCard() {
 
 function ComposerCard(props: {
   ref: (value: unknown) => void
-  draft: string
+  initialValue?: string
   busy: boolean
-  onChange: (value: string) => void
-  onSubmit: () => void
+  onSubmit: (value: string) => Promise<void> | void
   selectedAgent: string
   activityStatus: string
 }) {
+  const modelSpec = resolveModelSpec()
+  const renderer = useRenderer()
+  const term = useTerminalDimensions()
+  const [inputHeight, setInputHeight] = createSignal(1)
+  const [value, setValue] = createSignal(props.initialValue ?? "")
+  const [history, setHistory] = createSignal<PromptHistoryEntry[]>([])
+  const [historyCursor, setHistoryCursor] = createSignal(0)
+  const [historyDraft, setHistoryDraft] = createSignal("")
+  const [spinnerFrame, setSpinnerFrame] = createSignal(0)
+  const [placeholderIndex] = createSignal(Math.floor(Math.random() * PROMPT_PLACEHOLDERS.length))
+  const highlight = createMemo(() => agentAccent(props.selectedAgent))
+  let textareaRef: TextareaRenderable | undefined
+
+  const clampInputHeight = (lines: number) => Math.max(1, Math.min(PROMPT_MAX_HEIGHT, lines))
+
+  const inputWrapWidth = () => {
+    const measured = textareaRef?.width
+    if (typeof measured === "number" && measured > 0) return Math.max(1, measured)
+    return Math.max(24, term().width - 44)
+  }
+
+  const syncInputHeight = (fallback = value()) => {
+    const estimatedLines = estimateVisualLines(fallback, inputWrapWidth())
+    const measuredLines = textareaRef?.virtualLineCount ?? estimatedLines
+    setInputHeight(clampInputHeight(Math.max(estimatedLines, measuredLines)))
+  }
+
+  const refreshTextareaLayout = () => {
+    syncInputHeight()
+    queueMicrotask(() => {
+      textareaRef?.getLayoutNode().markDirty()
+      textareaRef?.requestRender()
+      renderer.requestRender()
+      setTimeout(() => {
+        textareaRef?.getLayoutNode().markDirty()
+        textareaRef?.requestRender()
+        renderer.requestRender()
+        syncInputHeight()
+      }, 0)
+    })
+  }
+
+  const applyValue = (next: string) => {
+    setValue(next)
+    if (textareaRef && textareaRef.plainText !== next) {
+      textareaRef.setText(next)
+    }
+    refreshTextareaLayout()
+  }
+
+  const clear = () => {
+    setHistoryCursor(0)
+    setHistoryDraft("")
+    setValue("")
+    textareaRef?.clear()
+    refreshTextareaLayout()
+  }
+
+  const moveHistory = (direction: -1 | 1) => {
+    const entries = history()
+    if (!textareaRef || entries.length === 0) return
+
+    const cursor = historyCursor()
+    const current = textareaRef.plainText
+
+    if (direction === -1) {
+      if (cursor >= entries.length) return
+      if (cursor === 0) setHistoryDraft(current)
+      const nextCursor = cursor + 1
+      setHistoryCursor(nextCursor)
+      applyValue(entries[entries.length - nextCursor].input)
+      queueMicrotask(() => {
+        if (textareaRef) textareaRef.cursorOffset = 0
+      })
+      return
+    }
+
+    if (cursor === 0) return
+    const nextCursor = cursor - 1
+    setHistoryCursor(nextCursor)
+    applyValue(nextCursor === 0 ? historyDraft() : entries[entries.length - nextCursor].input)
+    queueMicrotask(() => {
+      if (textareaRef) textareaRef.cursorOffset = textareaRef.plainText.length
+    })
+  }
+
+  const submit = async () => {
+    const text = value().trim()
+    if (!text || props.busy) return
+
+    const current = value()
+    const nextHistory = await appendPromptHistory({ input: current }, history()).catch(() => history())
+    setHistory(nextHistory)
+    clear()
+    await props.onSubmit(current)
+  }
+
+  createEffect(() => {
+    props.ref({
+      clear,
+      focus: () => textareaRef?.focus(),
+      value: () => textareaRef?.plainText ?? value(),
+    } satisfies ComposerHandle)
+  })
+
+  createEffect(() => {
+    if (!props.busy) {
+      setSpinnerFrame(0)
+      return
+    }
+
+    const timer = setInterval(() => {
+      setSpinnerFrame((current) => (current + 1) % SPINNER_FRAMES.length)
+    }, 80)
+
+    onCleanup(() => clearInterval(timer))
+  })
+
+  onMount(() => {
+    loadPromptHistory()
+      .then(setHistory)
+      .catch(() => setHistory([]))
+    queueMicrotask(() => syncInputHeight(props.initialValue ?? ""))
+  })
+
+  createEffect(() => {
+    term().width
+    syncInputHeight()
+  })
+
   return (
-    <box flexDirection="column" gap={1}>
-      <box height={3} backgroundColor={COLORS.panelAccent} paddingLeft={2} paddingRight={2} justifyContent="center">
-        <input
-          ref={props.ref}
-          focused
-          value={props.draft}
-          placeholder={props.busy ? "Agent is working..." : ""}
-          textColor={COLORS.text}
-          placeholderColor={COLORS.muted}
-          onInput={props.onChange}
-          onSubmit={() => {
-            if (!props.busy) props.onSubmit()
-          }}
-        />
-      </box>
-      <box flexDirection="row" gap={1} paddingLeft={1}>
-        <text fg={COLORS.accent} attributes={TextAttributes.BOLD}>{props.selectedAgent}</text>
+    <box flexDirection="column">
+      <box flexDirection="column">
+        <box
+          paddingLeft={2}
+          paddingRight={2}
+          paddingTop={1}
+          paddingBottom={0}
+          backgroundColor={COLORS.panelAccent}
+          flexDirection="column"
+        >
+          <textarea
+            ref={(current) => {
+              textareaRef = current
+              refreshTextareaLayout()
+            }}
+            focused
+            initialValue={value()}
+            height={inputHeight()}
+            placeholder={props.busy ? "Agent is working..." : "Type your message..."}
+            placeholderColor={COLORS.muted}
+            textColor={COLORS.text}
+            focusedTextColor={COLORS.text}
+            focusedBackgroundColor={COLORS.panelAccent}
+            cursorColor={COLORS.text}
+            keyBindings={getTextareaKeybindings()}
+            onContentChange={() => {
+              const next = textareaRef?.plainText ?? ""
+              setValue(next)
+              if (historyCursor() !== 0) setHistoryCursor(0)
+              syncInputHeight(next)
+              refreshTextareaLayout()
+            }}
+            onCursorChange={() => {
+              syncInputHeight()
+            }}
+            onKeyDown={(event) => {
+              if (!textareaRef) return
+
+              if (event.name === "up" && textareaRef.cursorOffset === 0 && textareaRef.visualCursor.visualRow === 0) {
+                moveHistory(-1)
+                event.preventDefault()
+                event.stopPropagation()
+                return
+              }
+
+              if (
+                event.name === "down" &&
+                textareaRef.cursorOffset === textareaRef.plainText.length &&
+                textareaRef.visualCursor.visualRow === textareaRef.height - 1
+              ) {
+                moveHistory(1)
+                event.preventDefault()
+                event.stopPropagation()
+              }
+            }}
+            onSubmit={() => {
+              void submit()
+            }}
+          />
+          <box flexDirection="row" gap={1} flexShrink={0} paddingTop={1} paddingBottom={1}>
+            <text fg={highlight()}>{titleCase(props.selectedAgent)}</text>
+            <text fg={COLORS.text}>{modelSpec.defaults.modelID}</text>
+            <text fg={COLORS.muted}>{modelSpec.provider}</text>
+          </box>
+        </box>
+        <box
+          flexDirection="row"
+          justifyContent={props.busy ? "space-between" : "flex-end"}
+          paddingLeft={2}
+          paddingRight={1}
+          paddingTop={1}
+        >
+          <Show when={props.busy}>
+            <box flexDirection="row" gap={1}>
+              <text fg={highlight()}>{SPINNER_FRAMES[spinnerFrame()]}</text>
+              <text fg={COLORS.text}>{props.activityStatus}</text>
+            </box>
+          </Show>
+          <box flexDirection="row" gap={2}>
+            <text fg={COLORS.text}>enter <span style={{ fg: COLORS.muted }}>send</span></text>
+            <text fg={COLORS.text}>shift+enter <span style={{ fg: COLORS.muted }}>newline</span></text>
+            <text fg={COLORS.text}>up/down <span style={{ fg: COLORS.muted }}>history</span></text>
+            <text fg={COLORS.text}>tab <span style={{ fg: COLORS.muted }}>agents</span></text>
+            <text fg={COLORS.text}>ctrl+n <span style={{ fg: COLORS.muted }}>new</span></text>
+            <text fg={COLORS.text}>ctrl+c <span style={{ fg: COLORS.muted }}>clear</span></text>
+          </box>
+        </box>
       </box>
     </box>
   )
@@ -471,7 +718,7 @@ function TraceEntryBlock(props: {
 }) {
   const isTopLevelAnswer = props.entry.kind === "answer" && !props.store.get(props.entry.sessionID)?.parentID
   const collapsible = Boolean(props.entry.detail) && !isTopLevelAnswer && props.entry.kind !== "result"
-  const body = collapsible && props.expanded ? props.entry.detail ?? props.entry.text : props.entry.text
+  const fg = props.entry.kind === "answer" || props.entry.kind === "result" ? COLORS.text : COLORS.muted
 
   const handleCopy = () => {
     const text = props.entry.detail ?? props.entry.text
@@ -493,8 +740,15 @@ function TraceEntryBlock(props: {
               <text fg={COLORS.muted}>{props.entry.status}</text>
             </Show>
           </box>
-          <box>
-            <text selectable fg={props.entry.kind === "answer" || props.entry.kind === "result" ? COLORS.text : COLORS.muted}>{body || " "}</text>
+          
+          <box marginTop={props.expanded && collapsible ? 1 : 0}>
+            <Show when={props.expanded && collapsible} fallback={
+              <text selectable fg={fg}>{props.entry.text || " "}</text>
+            }>
+              <box border borderColor={COLORS.border} paddingLeft={1} paddingRight={1}>
+                <text selectable fg={fg}>{props.entry.detail}</text>
+              </box>
+            </Show>
           </box>
 
           <box flexDirection="row" gap={2} marginTop={1}>
@@ -863,8 +1117,9 @@ function preview(value: unknown, max = 220) {
   return `${compact.slice(0, max - 3)}...`
 }
 
-function shouldCollapse(value: string, max = 220) {
-  return value.replace(/\s+/g, " ").trim().length > max || value.includes("\n")
+function shouldCollapse(value: string, max = 240) {
+  const lineCount = value.split("\n").length
+  return value.trim().length > max || lineCount > 5
 }
 
 function safeJson(value: unknown) {
