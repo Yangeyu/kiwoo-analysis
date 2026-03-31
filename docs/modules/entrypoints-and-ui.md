@@ -8,6 +8,10 @@
 
 - `src/index.ts`
 - `src/tui/app.tsx`
+- `src/tui/components/`
+- `src/tui/trace.ts`
+- `src/tui/theme.ts`
+- `src/tui/types.ts`
 - `src/core/runtime/logger.ts`
 - `src/core/runtime/events.ts`
 
@@ -23,7 +27,15 @@
 
 ## TUI 结构
 
-`src/tui/app.tsx` 基于 `@opentui/solid` 实现，核心分为：
+`src/tui/` 基于 `@opentui/solid` 实现，当前拆分为：
+
+- `app.tsx`：TUI 启动、状态编排、runtime 事件订阅、快捷键协调。
+- `components/`：sidebar、transcript item、composer、crash view 等视图组件。
+- `trace.ts`：把 runtime 事件归并为可渲染 trace entry。
+- `theme.ts`：颜色、展示常量和无副作用 UI/trace 辅助函数。
+- `types.ts`：TUI 内部共享类型。
+
+整体界面仍然分为：
 
 - 左侧 sidebar：当前 agent、会话列表、快捷键提示。
 - 右侧 transcript：按 session tree 扁平展示 user / thinking / tool / answer / error。
