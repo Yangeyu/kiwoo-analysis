@@ -7,6 +7,18 @@ export type FinishReason = "stop" | "tool-calls" | "length" | "error"
 
 export type ProcessorResult = "continue" | "stop" | "compact"
 
+export type TurnOutcomeReason =
+  | "tool_calls"
+  | "empty_assistant"
+  | "context_limit"
+  | "structured_output"
+  | "passthrough_artifact"
+  | "step_budget_reached"
+  | "step_budget_reached_without_answer"
+  | "assistant_error"
+  | "final_text"
+  | "completed_without_output"
+
 export type JsonObject = Record<string, unknown>
 
 export type ProviderModel = {
@@ -133,6 +145,16 @@ export type ToolContext = RuntimeDeps & {
   messages: SessionHistoryMessage[]
   extra?: JsonObject
   metadata(input: { title?: string; metadata?: ToolMetadata }): Promise<void>
+  executeTool(input: { toolName: string; args: unknown; toolCallId?: string }): Promise<
+    | {
+        status: "completed"
+        result: ToolExecuteResult
+      }
+    | {
+        status: "error"
+        error: ErrorInfo
+      }
+  >
   captureStructuredOutput(output: unknown): Promise<void>
   captureArtifact(artifact: Artifact): Promise<void>
 }

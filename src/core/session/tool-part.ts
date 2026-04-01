@@ -91,12 +91,20 @@ export function toErroredToolPart(
 }
 
 export function toMetadataPatchedToolPart(part: ToolPart, input: { title?: string; metadata?: ToolMetadata }): ToolPart {
+  const nextTitle = input.title === undefined ? part.state.title : input.title
+  const nextMetadata = input.metadata === undefined
+    ? part.state.metadata
+    : {
+        ...(part.state.metadata ?? {}),
+        ...input.metadata,
+      }
+
   return {
     ...part,
     state: {
       ...part.state,
-      title: input.title,
-      metadata: input.metadata,
+      title: nextTitle,
+      metadata: nextMetadata,
     },
   }
 }

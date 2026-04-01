@@ -119,7 +119,7 @@ function formatToolLabel(tool: string, args: unknown) {
   }
 
   if (tool === "batch") {
-    const calls = Array.isArray(input.calls) ? input.calls.length : undefined
+    const calls = Array.isArray(input.tool_calls) ? input.tool_calls.length : undefined
     return calls ? `Run batch (${calls})` : "Run batch"
   }
 
@@ -319,6 +319,12 @@ class ConsoleLogger {
       return
     }
 
+    if (event.type === "turn-input") {
+      const tools = event.tools.length > 0 ? event.tools.join(", ") : "<none>"
+      printLine(style(`Tools: ${tools}`, ANSI.dim))
+      return
+    }
+
     if (event.type === "retry") {
       const detail = [event.category, event.reason].filter(Boolean).join(" - ")
       printLine(style(`[retry ${event.attempt}] ${event.agent} in ${event.delayMs}ms`, ANSI.yellow, ANSI.bold))
@@ -363,6 +369,11 @@ class ConsoleLogger {
 
     if (event.type === "structured-output") {
       printLine(`${style("[ok]", ANSI.green, ANSI.bold)} structured output captured`)
+      return
+    }
+
+    if (event.type === "turn-outcome") {
+      printLine(style(`Outcome - ${event.outcome} - ${event.reason}`, ANSI.dim))
       return
     }
 

@@ -51,9 +51,22 @@ The project is now bun-first for local development:
 Useful flags:
 
 - `--agent build`
+- `--session <id>` to continue an existing session from the CLI
 - `--json` to print the full final session JSON after the live CLI UI
+- `--trace` to print the current run's turn trace after the answer
+- `--replay-step <n>` to print a replayable turn-input snapshot for a traced step
+- `--replay-message <id>` to print a replayable turn-input snapshot for a traced assistant message
 - `--output stream|buffered`
 - `--tui` to force the interactive terminal UI
+
+Trace/replay debug output is process-local: it works for turns executed by the current CLI invocation, including continued runs with `--session`, but it does not reconstruct prior trace history from stored session files alone.
+
+Examples:
+
+```bash
+bun run start --output buffered --trace "Run nested batch smoke for tool harness"
+bun run start --output buffered --trace --replay-step 1 "Run nested batch smoke for tool harness"
+```
 
 In an interactive terminal, running without a prompt now opens the TUI by default:
 

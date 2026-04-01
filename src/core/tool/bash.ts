@@ -31,6 +31,22 @@ export const BashTool = defineTool({
       },
     }
   },
+  mapError({ toolID, error }) {
+    const message = error instanceof Error ? error.message : String(error)
+    if (message === "Bash command aborted") {
+      return {
+        message: `The ${toolID} tool failed: command aborted before completion`,
+        retryable: false,
+        code: "bash_aborted",
+      }
+    }
+
+    return {
+      message: `The ${toolID} tool failed: ${message}`,
+      retryable: false,
+      code: "tool_execution_failed",
+    }
+  },
   async execute(args, ctx) {
     const workdir = args.workdir ? path.resolve(process.cwd(), args.workdir) : process.cwd()
     const timeout = args.timeout ?? 120000
@@ -43,12 +59,14 @@ export const BashTool = defineTool({
     })
 
     return {
-      title: args.description,
+      title: args.description ?? `bash: ${args.command}`,
       output: formatOutput(result),
       metadata: {
         exitCode: result.exitCode,
         timedOut: result.timedOut,
+        succeeded: result.exitCode === 0 && !result.timedOut,
         workdir,
+        command: args.command,
       },
     }
   },

@@ -1,6 +1,18 @@
+import type { TurnOutcomeReason } from "@/core/types"
+
 type RuntimeEvent =
   | { type: "session-start"; sessionID: string; agent: string; text: string }
   | { type: "loop-step"; sessionID: string; step: number; agent: string }
+  | {
+      type: "turn-input"
+      sessionID: string
+      agent: string
+      messageID: string
+      step: number
+      system: string[]
+      tools: string[]
+      messageCount: number
+    }
   | {
       type: "budget-hit"
       sessionID: string
@@ -38,6 +50,15 @@ type RuntimeEvent =
   | { type: "structured-output"; sessionID: string; agent: string; output: unknown }
   | { type: "compaction"; sessionID: string; summary: string }
   | { type: "finish"; sessionID: string; agent: string; finishReason: string }
+  | {
+      type: "turn-outcome"
+      sessionID: string
+      agent: string
+      messageID: string
+      step: number
+      outcome: "continue" | "compact" | "break"
+      reason: TurnOutcomeReason
+    }
   | {
       type: "turn-complete"
       sessionID: string

@@ -19,7 +19,7 @@ export type GrepArgs = z.infer<typeof GrepParameters>
 
 export const ReadTool = defineTool({
   id: "read",
-  description: "Read a file",
+  description: "Read a UTF-8 text file from the workspace and return its contents.",
   parameters: ReadParameters,
   beforeExecute({ args }) {
     const target = path.resolve(process.cwd(), args.filePath)
@@ -28,6 +28,22 @@ export const ReadTool = defineTool({
       metadata: {
         filePath: target,
       },
+    }
+  },
+  mapError({ args, toolID, error }) {
+    if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") {
+      return {
+        message: `The ${toolID} tool failed: file not found at ${args.filePath}`,
+        retryable: false,
+        code: "read_not_found",
+      }
+    }
+
+    const message = error instanceof Error ? error.message : String(error)
+    return {
+      message: `The ${toolID} tool failed: ${message}`,
+      retryable: false,
+      code: "tool_execution_failed",
     }
   },
   async execute(args) {
@@ -41,7 +57,7 @@ export const ReadTool = defineTool({
 
 export const GrepTool = defineTool({
   id: "grep",
-  description: "Search code",
+  description: "Search for a regular expression across TypeScript files under src/.",
   parameters: GrepParameters,
   beforeExecute({ args }) {
     const root = path.resolve(process.cwd(), "src")
@@ -53,22 +69,42 @@ export const GrepTool = defineTool({
       },
     }
   },
+  mapError({ args, toolID, error }) {
+    if (error instanceof SyntaxError) {
+      return {
+        message: `The ${toolID} tool failed: invalid regular expression ${JSON.stringify(args.pattern)}`,
+        retryable: false,
+        code: "grep_invalid_pattern",
+      }
+    }
+
+    const message = error instanceof Error ? error.message : String(error)
+    return {
+      message: `The ${toolID} tool failed: ${message}`,
+      retryable: false,
+      code: "tool_execution_failed",
+    }
+  },
   async execute(args) {
     const root = path.resolve(process.cwd(), "src")
+    const pattern = new RegExp(args.pattern)
     const entries = await fs.readdir(root, { recursive: true, withFileTypes: true })
     const matches: string[] = []
+    let fileCount = 0
 
     for (const entry of entries) {
       if (!entry.isFile()) continue
       const relative = entry.parentPath
-        ? path.relative(process.cwd(), path.join(entry.parentPath, entry.name))
-        : path.relative(process.cwd(), path.join(root, entry.name))
+          ? path.relative(process.cwd(), path.join(entry.parentPath, entry.name))
+          : path.relative(process.cwd(), path.join(root, entry.name))
       if (!relative.endsWith(".ts")) continue
+      fileCount += 1
       const target = path.resolve(process.cwd(), relative)
       const content = await fs.readFile(target, "utf8")
       const lines = content.split("\n")
       lines.forEach((line: string, index: number) => {
-        if (line.includes(args.pattern)) {
+        pattern.lastIndex = 0
+        if (pattern.test(line)) {
           matches.push(`${relative}:${index + 1}: ${line.trim()}`)
         }
       })
@@ -76,6 +112,12 @@ export const GrepTool = defineTool({
 
     return {
       output: matches.length ? matches.join("\n") : `No matches for ${args.pattern}`,
+      metadata: {
+        pattern: args.pattern,
+        root,
+        filesScanned: fileCount,
+        matchCount: matches.length,
+      },
     }
   },
 })

@@ -20,6 +20,15 @@ export class ToolCallExecutor {
   ) {}
 
   async execute(chunk: { toolCallId: string; toolName: string; args: unknown }): Promise<ToolExecutionResult> {
+    const outcome = await this.executeCall(chunk)
+    return outcome.kind === "stop" ? { kind: "stop" } : { kind: "continue" }
+  }
+
+  private async executeCall(chunk: { toolCallId: string; toolName: string; args: unknown }): Promise<
+    | { kind: "completed"; result: Awaited<ReturnType<ToolDefinition<unknown>["execute"]>> }
+    | { kind: "error"; error: ErrorInfo }
+    | { kind: "stop" }
+  > {
     this.turnState.transition("executing-tool")
 
     this.context.events.emit({
@@ -82,18 +91,19 @@ export class ToolCallExecutor {
 
     const tool = this.context.tools.find((item) => item.id === chunk.toolName)
     if (!tool) {
-      this.markToolPartError(part, chunk.args, {
+      const error = {
         message: `Tool not available: ${chunk.toolName}`,
         retryable: false,
         code: "tool_not_available",
-      })
-      return this.resolveToolFailure(chunk.toolName)
+      } satisfies ErrorInfo
+      this.markToolPartError(part, chunk.args, error)
+      return this.resolveToolFailure(chunk.toolName, error)
     }
 
     const parsedCall = validateToolArgs(tool, chunk.args)
     if (!parsedCall.success) {
       this.markToolPartError(part, chunk.args, parsedCall.error)
-      return this.resolveToolFailure(chunk.toolName)
+      return this.resolveToolFailure(chunk.toolName, parsedCall.error)
     }
 
     const validatedArgs = parsedCall.data
@@ -137,7 +147,7 @@ export class ToolCallExecutor {
       })
 
       this.context.recentToolFailures = []
-      return { kind: "continue" }
+      return { kind: "completed", result: toolResult }
     } catch (error) {
       if (isAbortError(error)) {
         this.context.session_store.updatePart(this.context.session.id, this.context.assistant.id, part.id, toErroredToolPart(part, validatedArgs, {
@@ -156,13 +166,16 @@ export class ToolCallExecutor {
         return { kind: "stop" }
       }
 
-      this.markToolPartError(part, validatedArgs, toToolExecutionErrorInfo(chunk.toolName, error))
-      return this.resolveToolFailure(chunk.toolName)
+      const errorInfo = toToolExecutionErrorInfo(chunk.toolName, error)
+      this.markToolPartError(part, validatedArgs, errorInfo)
+      return this.resolveToolFailure(chunk.toolName, errorInfo)
     }
   }
 
-  private resolveToolFailure(toolName: string): ToolExecutionResult {
-    if (!this.shouldStopForRepeatedToolFailures()) return { kind: "continue" }
+  private resolveToolFailure(toolName: string, error: ErrorInfo):
+    | { kind: "error"; error: ErrorInfo }
+    | { kind: "stop" } {
+    if (!this.shouldStopForRepeatedToolFailures()) return { kind: "error", error }
 
     this.context.events.emit({
       type: "budget-hit",
@@ -262,6 +275,29 @@ export class ToolCallExecutor {
             metadata: metadataUpdate.metadata,
           }),
         )
+      },
+      executeTool: async (input: { toolName: string; args: unknown; toolCallId?: string }) => {
+        const outcome = await this.executeCall({
+          toolName: input.toolName,
+          args: input.args,
+          toolCallId: input.toolCallId ?? createID(),
+        })
+
+        if (outcome.kind === "completed") {
+          return {
+            status: "completed" as const,
+            result: outcome.result,
+          }
+        }
+
+        if (outcome.kind === "error") {
+          return {
+            status: "error" as const,
+            error: outcome.error,
+          }
+        }
+
+        throw new Error(`Nested tool execution stopped while running ${input.toolName}`)
       },
       captureStructuredOutput: async (output: unknown) => {
         writer.captureStructuredOutput(output)

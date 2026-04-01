@@ -6,6 +6,10 @@ function parseArgs(argv: string[]) {
   const args = [...argv]
   let agent: string | undefined
   let json = false
+  let sessionID: string | undefined
+  let trace = false
+  let replayStep: number | undefined
+  let replayMessageID: string | undefined
   let tui = false
   let outputMode: OutputMode = "stream"
   let textParts: string[] = []
@@ -18,6 +22,27 @@ function parseArgs(argv: string[]) {
     }
     if (token === "--json") {
       json = true
+      continue
+    }
+    if (token === "--session") {
+      sessionID = args.shift() ?? sessionID
+      continue
+    }
+    if (token === "--trace") {
+      trace = true
+      continue
+    }
+    if (token === "--replay-step") {
+      const value = args.shift()
+      const step = Number(value)
+      if (Number.isInteger(step) && step > 0) {
+        replayStep = step
+        continue
+      }
+      throw new Error(`Invalid --replay-step value: ${value ?? ""}`)
+    }
+    if (token === "--replay-message") {
+      replayMessageID = args.shift() ?? replayMessageID
       continue
     }
     if (token === "--tui") {
@@ -36,15 +61,56 @@ function parseArgs(argv: string[]) {
   return {
     agent,
     json,
+    sessionID,
+    trace,
+    replayStep,
+    replayMessageID,
     tui,
     outputMode,
     text: textParts.join(" ").trim(),
   }
 }
 
+function validateArgs(parsed: ReturnType<typeof parseArgs>) {
+  if (parsed.replayStep !== undefined && parsed.replayMessageID) {
+    throw new Error("Use either --replay-step or --replay-message, not both")
+  }
+
+  if (parsed.tui && (parsed.trace || parsed.replayStep !== undefined || parsed.replayMessageID)) {
+    throw new Error("Trace and replay debug output are only supported in CLI mode")
+  }
+}
+
+function printDebugSection(label: string, value: unknown) {
+  console.log(`\n[${label}]`)
+  console.log(JSON.stringify(value, null, 2))
+}
+
+function toReplayDebugSnapshot(runtime: ReturnType<typeof createRuntime>, selector: { sessionID: string; step: number } | { sessionID: string; messageID: string }) {
+  const replay = runtime.replay.turnInput(selector)
+  return {
+    sessionID: replay.sessionID,
+    messageID: replay.messageID,
+    step: replay.step,
+    agent: replay.agent,
+    system: replay.system,
+    tools: replay.tools,
+    messages: replay.messages,
+    llmInput: {
+      sessionID: replay.llmInput.session.id,
+      userID: replay.llmInput.user.id,
+      assistantID: replay.llmInput.assistant.id,
+      agent: replay.llmInput.agent.name,
+      toolIDs: replay.llmInput.tools.map((tool) => tool.id),
+      messageCount: replay.llmInput.messages.length,
+    },
+  }
+}
+
 async function main() {
   const runtime = createRuntime()
   const parsed = parseArgs(process.argv.slice(2))
+  validateArgs(parsed)
   const defaultAgent = runtime.agent_registry.defaultAgent().name
   const canLaunchTui = process.stdin.isTTY && process.stdout.isTTY
 
@@ -70,7 +136,7 @@ async function main() {
       return
     }
 
-    console.log(`Usage: bun run start [--agent ${defaultAgent}] [--json] [--output stream|buffered] "your prompt"`)
+    console.log(`Usage: bun run start [--agent ${defaultAgent}] [--session <id>] [--json] [--trace] [--replay-step <n>] [--replay-message <id>] [--output stream|buffered] "your prompt"`)
     console.log("Example: bun run start \"read src/core/session/prompt.ts and explain the loop\"")
     console.log("Interactive terminals can also launch the TUI with: bun run tui")
     return
@@ -78,12 +144,31 @@ async function main() {
 
   const detach = attachConsoleLogger(runtime.events, { outputMode: parsed.outputMode })
   try {
-    await runPrompt({
+    const session = await runPrompt({
       runtime,
       text: parsed.text,
       agent: parsed.agent ?? defaultAgent,
+      sessionID: parsed.sessionID,
       printSessionJson: parsed.json,
     })
+
+    if (parsed.trace) {
+      printDebugSection("trace", runtime.trace.turnsForSession(session.id))
+    }
+
+    if (parsed.replayStep !== undefined) {
+      printDebugSection("replay", toReplayDebugSnapshot(runtime, {
+        sessionID: session.id,
+        step: parsed.replayStep,
+      }))
+    }
+
+    if (parsed.replayMessageID) {
+      printDebugSection("replay", toReplayDebugSnapshot(runtime, {
+        sessionID: session.id,
+        messageID: parsed.replayMessageID,
+      }))
+    }
   } finally {
     detach()
   }

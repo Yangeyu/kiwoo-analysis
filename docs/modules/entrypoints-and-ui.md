@@ -19,11 +19,20 @@
 
 `src/index.ts` 负责：
 
-- 解析 `--agent`、`--json`、`--tui`、`--output`。
+- 解析 `--agent`、`--session`、`--json`、`--trace`、`--replay-step`、`--replay-message`、`--tui`、`--output`。
 - 在启动时调用 `createRuntime()` 创建并装配新的 runtime 实例。
 - 测试和 smoke 脚本可调用 `createTestRuntime()`，默认使用 memory store 并支持覆写 config/modules。
 - 无 prompt 且在交互终端中时，默认进入 TUI。
 - 有 prompt 时，通过 `runPrompt()` 触发一次完整 session turn。
+- 当启用 `--trace` / `--replay-*` 时，在 turn 完成后打印当前进程内 runtime 收集到的 trace 或 replay 调试快照。
+
+当前 CLI 调试出口约束：
+
+- `--session <id>` 允许在 CLI 中继续已有 session。
+- `--trace` 打印当前这次 CLI 运行里，该 session 的 turn trace。
+- `--replay-step <n>` 或 `--replay-message <id>` 打印对应 turn 的 replay 输入快照。
+- replay 依赖当前 runtime 内存里的 trace，因此不能只靠磁盘 session 文件离线恢复旧 trace。
+- `--trace` / `--replay-*` 仅支持 CLI 模式，不支持 `--tui`。
 
 ## TUI 结构
 

@@ -16,6 +16,7 @@
 - `src/core/session/assistant-writer.ts`
 - `src/core/session/tool-executor.ts`
 - `src/core/session/turn-state-machine.ts`
+- `src/core/session/turn-outcome.ts`
 - `src/core/session/tool-part.ts`
 - `src/core/session/store/`
 - `src/core/session/model-message.ts`
@@ -27,6 +28,8 @@
 
 - `src/core/config.ts` 只负责环境变量解析、schema 校验、默认值和缓存读取，不负责创建任何运行时依赖。
 - `src/core/runtime/context.ts` 负责创建新的 `RuntimeContext` 实例，把 `config`、`session_store`、`agent_registry`、`tool_registry`、`events` 装配在同一个 runtime 上。
+- `src/core/runtime/trace.ts` 负责订阅 runtime events，收集 turn-level trace，并通过 `RuntimeContext.trace` 暴露导出接口。
+- `src/core/runtime/replay.ts` 负责基于 session state 和 trace 重建指定 turn 的模型输入快照，并通过 `RuntimeContext.replay` 暴露查询接口。
 - `src/core/runtime/execution-policy.ts` 负责把 runtime config 和 agent 约束解析成 turn 级执行策略。
 - `src/core/runtime/bootstrap.ts` 负责把 `RuntimeModules` 注册到传入的 runtime，或通过 `createRuntime()` 一次性创建并装配新的 runtime 实例。
 
@@ -91,12 +94,50 @@
 - `execution-policy.ts` 统一提供 retry、timeout、step/tool budgets、repeated failure threshold
 - `processor-context.ts` 集中维护 step 执行上下文与结果判定
 - `turn-state-machine.ts` 负责 phase 迁移和 turn lifecycle events
+- `turn-outcome.ts` 负责把单 turn 的处理结果收口成显式 outcome，并统一应用 continue / stop / compact 规则
 - `assistant-writer.ts` 负责 assistant message / text / reasoning / artifact 写回
 - `tool-executor.ts` 负责 tool-call 的校验、执行、失败策略与 tool context 组装
 
 这样把“流程编排”“状态切换”“持久化写操作”“工具执行”分开，避免 processor 本身继续膨胀。
 
 当前 runtime event 流属于 `runtime.events`，会在模型调用发生可重试错误时发出 `retry` 事件，包含 `attempt`、`delayMs`、`category`、`reason` 和错误消息，方便 logger 或上层观察重试行为。
+
+当前还会为每个 turn 发出最小 trace 事件，供后续 replay / eval / 调试使用：
+
+- `turn-input`: 当前 turn 的输入快照，包括 `system`、启用的 `tools`、`messageCount`
+- `turn-outcome`: 当前 turn 的收口结果，包括 `continue | compact | break` 以及显式 `reason`
+
+`RuntimeContext.trace` 会基于这些事件收集导出的 turn trace，当前最小字段包括：
+
+- `sessionID`、`agent`、`messageID`、`step`
+- `system`、`tools`、`messageCount`
+- `toolCalls`
+- `retries`
+- `budgetHits`
+- `outcome`
+- `finishReason`、`durationMs`、`aborted`、`error`
+
+`RuntimeContext.replay` 当前提供最小 replay 入口：
+
+- `turnInput({ sessionID, messageID })`
+- `turnInput({ sessionID, step })`
+
+返回结果会重建当时的：
+
+- `system`
+- `tools`
+- `messages`
+- 可直接复用的 `llmInput`
+
+当前 replay 只负责重建输入快照，不负责再次执行 provider。
+
+CLI 当前已经提供最小调试出口：
+
+- `bun run start --trace "..."`
+- `bun run start --replay-step <n> "..."`
+- `bun run start --replay-message <id> "..."`
+
+这些出口直接读取当前 runtime 实例上的 `trace` / `replay`，因此只覆盖本次 CLI 进程内执行过的 turn。
 
 当 execution policy 命中 budget 上限时，还会发出 `budget-hit` 事件：
 

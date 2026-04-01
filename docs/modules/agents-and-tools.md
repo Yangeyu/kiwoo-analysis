@@ -100,6 +100,8 @@ tool metadata key 约定优先使用 `camelCase`，例如：
 - metadata 归一化（`normalizeMetadata`）
 - 可选 output 截断（`truncateOutput`，默认关闭）
 
+`ToolContext` 目前除 runtime deps 和 metadata/artifact capture 之外，还提供受控的 `executeTool()` 能力，供 `batch` 这类组合工具复用标准 tool execution path，而不是绕开 session/tool-part/budget/event 边界直接调用其他 tool。
+
 各 hook 的职责建议：
 
 - `beforeExecute`
@@ -116,13 +118,16 @@ tool metadata key 约定优先使用 `camelCase`，例如：
 ## 关键工具职责
 
 - `basic.ts`
-  - `read`: 读取文件文本
-  - `grep`: 在 `src/` 下做简单字符串搜索
+  - `read`: 读取工作区内 UTF-8 文本文件
+  - `grep`: 在 `src/` 下的 TypeScript 文件中执行正则搜索
 - `bash.ts`
   - 在本地工作区执行 shell 命令
   - 支持 workdir、timeout、abort、元数据回写
+  - 返回的 metadata 至少包含 `command`、`workdir`、`exitCode`、`timedOut`、`succeeded`
 - `batch.ts`
   - 用于并发执行多个独立工具调用
+  - 子调用会复用统一 tool execution path，继续写入标准 `ToolPart`、遵守 tool budget 和 failure policy
+  - 聚合 metadata 会记录调用数量和工具列表，便于 trace 和 replay
 - `task.ts`
   - `task`: 创建新的 child session
   - `task_resume`: 复用已有 child session
@@ -131,6 +136,7 @@ tool metadata key 约定优先使用 `camelCase`，例如：
   - 支持显式 `intent`（`investigate` / `draft` / `deliver`）
   - 当子 agent 产出最终交付物时，可返回带 `artifactType`、`deliveryMode`、`contentFormat` 的结果 metadata
   - `deliver` + `passthrough` 场景下，父 session 会直接透传产物，而不是继续让主 agent 总结
+  - delegation result metadata 统一记录 `taskId`、`sessionId`、`parentSessionId`、`agentName`、`subagentName`、`resume`、`intent` 等关键字段
 
 ## 设计重点
 

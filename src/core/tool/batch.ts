@@ -19,25 +19,35 @@ export type BatchArgs = z.infer<typeof BatchParameters>
 
 export const BatchTool = defineTool({
   id: "batch",
-  description: "Run tools in parallel",
+  description: "Run multiple independent tool calls in parallel and aggregate their outputs.",
   parameters: BatchParameters,
   beforeExecute({ args }) {
     return {
       title: "Batch execution",
       metadata: {
         count: args.tool_calls.length,
+        tools: args.tool_calls.map((call) => call.tool),
       },
     }
   },
   async execute(args, ctx) {
-
     const results = await Promise.all(
       args.tool_calls.map(async (call) => {
-        const tool = ctx.tool_registry.getTyped<unknown>(call.tool)
-        const result = await tool.execute(call.parameters, ctx)
+        const result = await ctx.executeTool({
+          toolName: call.tool,
+          args: call.parameters,
+        })
+
+        if (result.status === "error") {
+          return {
+            tool: call.tool,
+            output: `[error] ${result.error.message}`,
+          }
+        }
+
         return {
           tool: call.tool,
-          output: result.output,
+          output: result.result.output,
         }
       }),
     )
@@ -47,6 +57,7 @@ export const BatchTool = defineTool({
       output: results.map((result) => `[${result.tool}]\n${result.output}`).join("\n\n"),
       metadata: {
         count: results.length,
+        tools: args.tool_calls.map((call) => call.tool),
       },
     }
   },

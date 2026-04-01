@@ -172,6 +172,7 @@ function createTaskTool<P extends z.ZodTypeAny>(input: {
         agent: agent.name,
         model,
         format: ctx.format,
+        abort: ctx.abort,
       }, {
         config: ctx.config,
         agent_registry: ctx.agent_registry,
@@ -180,11 +181,13 @@ function createTaskTool<P extends z.ZodTypeAny>(input: {
         events: ctx.events,
       })
 
-      const lastAssistant = [...child.messages].reverse().find((message) => message.role === "assistant") as
+      const completedChild = store.get(child.id)
+
+      const lastAssistant = [...completedChild.messages].reverse().find((message) => message.role === "assistant") as
         | AssistantMessage
         | undefined
       const result = extractTaskResult({
-        childSessionId: child.id,
+        childSessionId: completedChild.id,
         lastAssistant,
         store,
       })
@@ -197,7 +200,7 @@ function createTaskTool<P extends z.ZodTypeAny>(input: {
       return {
         title: args.description,
         output: [
-          `task_id: ${child.id}`,
+          `task_id: ${completedChild.id}`,
           `agent: ${agent.name}`,
           "",
           "<task_result>",
@@ -205,13 +208,17 @@ function createTaskTool<P extends z.ZodTypeAny>(input: {
           "</task_result>",
         ].join("\n"),
         metadata: {
-          taskId: child.id,
-          sessionId: child.id,
+          taskId: completedChild.id,
+          sessionId: completedChild.id,
+          parentSessionId: ctx.sessionID,
           agentName: agent.name,
+          subagentName: agent.name,
+          resume: input.resume,
           intent: args.intent,
           artifactType: artifact?.type,
           deliveryMode: artifact?.deliveryMode,
           contentFormat: artifact?.format,
+          completed: lastAssistant?.time.completed !== undefined,
         },
       }
     },

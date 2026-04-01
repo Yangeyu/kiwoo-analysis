@@ -14,6 +14,9 @@ await runInvalidArgsCase()
 await runTaskCase()
 await runTaskResumeCase()
 await runNestedBatchCase()
+await runTraceExportCase()
+await runReplayCase()
+await runCliDebugCase()
 await runSessionBudgetCase()
 await runSubagentDepthBudgetCase()
 runCompactionCase()
@@ -99,6 +102,85 @@ async function runNestedBatchCase() {
   assert.match(batchPart.state.output, /\[batch\]/)
   assert.match(batchPart.state.output, /\[grep\]/)
   assert.match(batchPart.state.output, /src\/core\/tool\/task\.ts/)
+}
+
+async function runTraceExportCase() {
+  const tracedRuntime = createTestRuntime()
+  const session = await runPrompt({
+    runtime: tracedRuntime,
+    text: "Run nested batch smoke for tool harness",
+  })
+
+  const turns = tracedRuntime.trace.turnsForSession(session.id)
+  assert(turns.length >= 2, "expected exported trace turns for batch flow")
+
+  const rootTurn = turns.find((turn) => turn.tools?.includes("batch"))
+  assert(rootTurn, "expected a traced root turn with batch available")
+  assert.equal(rootTurn.outcome?.kind, "continue")
+  assert.equal(rootTurn.outcome?.reason, "tool_calls")
+
+  const batchCall = rootTurn.toolCalls.find((call) => call.tool === "batch")
+  assert(batchCall, "expected traced batch tool call")
+  assert.equal(batchCall.status, "completed")
+
+  const finalTurn = [...turns].reverse().find((turn) => turn.finishReason === "stop")
+  assert(finalTurn, "expected final traced turn")
+  assert.equal(finalTurn.outcome?.kind, "break")
+}
+
+async function runReplayCase() {
+  const replayRuntime = createTestRuntime()
+  const session = await runPrompt({
+    runtime: replayRuntime,
+    text: "Run nested batch smoke for tool harness",
+  })
+
+  const turn = replayRuntime.trace.turnsForSession(session.id).find((item) => item.step === 1)
+  assert(turn, "expected first traced turn for replay")
+
+  const replay = replayRuntime.replay.turnInput({
+    sessionID: session.id,
+    messageID: turn.messageID,
+  })
+
+  assert.equal(replay.step, 1)
+  assert.ok(replay.system.length > 0, "expected replay system prompt")
+  assert.ok(replay.tools.includes("batch"), "expected replay tools to include batch")
+  assert.ok(replay.messages.some((message) => message.role === "user"), "expected replay model messages to include user input")
+  assert.equal(replay.llmInput.assistant.id, turn.messageID)
+}
+
+async function runCliDebugCase() {
+  const command = [
+    "bun",
+    "run",
+    "src/index.ts",
+    "--output",
+    "buffered",
+    "--trace",
+    "--replay-step",
+    "1",
+    "Run nested batch smoke for tool harness",
+  ]
+  const result = Bun.spawnSync(command, {
+    cwd: process.cwd(),
+    env: {
+      ...process.env,
+      LLM_MODE: "fake",
+      SESSION_STORE: "memory",
+    },
+    stdout: "pipe",
+    stderr: "pipe",
+  })
+  const stdout = result.stdout.toString()
+  const stderr = result.stderr.toString()
+
+  assert.equal(result.exitCode, 0, `expected CLI debug command to succeed: ${stderr}`)
+  assert.match(stdout, /\[trace\]/)
+  assert.match(stdout, /"tool": "batch"/)
+  assert.match(stdout, /\[replay\]/)
+  assert.match(stdout, /"step": 1/)
+  assert.match(stdout, /"toolIDs": \[/)
 }
 
 async function runSessionBudgetCase() {
