@@ -1,5 +1,5 @@
 import type { ErrorInfo } from "@/core/types"
-import type { RetryPolicy } from "@/core/runtime/execution-policy"
+import type { RetryPolicy } from "@/core/session/execution-policy"
 
 export const DOOM_LOOP_THRESHOLD = 3
 

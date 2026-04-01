@@ -1,5 +1,5 @@
+import { getDelegationDepthInfo, resolveSessionDepth } from "@/core/session/execution-policy"
 import { SessionPrompt } from "@/core/session/prompt"
-import { getDelegationDepthInfo, resolveSessionDepth } from "@/core/runtime/execution-policy"
 import type { ISessionStore } from "@/core/session/store"
 import { defineTool } from "@/core/tool/tool"
 import type {

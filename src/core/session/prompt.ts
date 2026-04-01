@@ -1,5 +1,5 @@
 import type { RuntimeDeps } from "@/core/runtime/context"
-import { createTurnAbortSignal, resolveTurnExecutionPolicy, type TurnExecutionPolicy } from "@/core/runtime/execution-policy"
+import { createTurnAbortSignal, resolveTurnExecutionPolicy, type TurnExecutionPolicy } from "@/core/session/execution-policy"
 import { toModelMessages } from "@/core/session/model-message"
 import { SessionProcessor } from "@/core/session/processor"
 import { buildSystemPrompt } from "@/core/session/system"

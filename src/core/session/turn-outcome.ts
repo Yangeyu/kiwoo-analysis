@@ -1,7 +1,7 @@
 import { SessionCompaction } from "@/core/session/compaction"
 import type { RuntimeDeps } from "@/core/runtime/context"
 import { createID, type AgentInfo, type AssistantMessage, type ProcessorResult, type TurnOutcomeReason, type UserMessage } from "@/core/types"
-import type { TurnExecutionPolicy } from "@/core/runtime/execution-policy"
+import type { TurnExecutionPolicy } from "@/core/session/execution-policy"
 
 type LoopContext = RuntimeDeps & {
   sessionID: string

@@ -1,7 +1,7 @@
 import type { AgentRegistry } from "@/core/agent/registry"
 import type { Config } from "@/core/config"
 import type { ModelMessage } from "@/core/llm/index"
-import type { TurnExecutionPolicy } from "@/core/runtime/execution-policy"
+import type { TurnExecutionPolicy } from "@/core/session/execution-policy"
 import type { RuntimeEventBus } from "@/core/runtime/events"
 import type { ISessionStore } from "@/core/session/store"
 import type { ToolRegistry } from "@/core/tool/registry"

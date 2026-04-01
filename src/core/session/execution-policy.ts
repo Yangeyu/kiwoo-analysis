@@ -1,7 +1,6 @@
-import type { AgentInfo } from "@/core/types"
 import type { Config } from "@/core/config"
 import type { ISessionStore } from "@/core/session/store"
-import type { SessionInfo } from "@/core/types"
+import type { AgentInfo, SessionInfo } from "@/core/types"
 
 export type RetryPolicy = {
   maxRetries: number

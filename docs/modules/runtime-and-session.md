@@ -15,6 +15,7 @@
 - `src/core/session/processor-context.ts`
 - `src/core/session/assistant-writer.ts`
 - `src/core/session/tool-executor.ts`
+- `src/core/session/execution-policy.ts`
 - `src/core/session/turn-state-machine.ts`
 - `src/core/session/turn-outcome.ts`
 - `src/core/session/tool-part.ts`
@@ -30,7 +31,7 @@
 - `src/core/runtime/context.ts` 负责创建新的 `RuntimeContext` 实例，把 `config`、`session_store`、`agent_registry`、`tool_registry`、`events` 装配在同一个 runtime 上。
 - `src/core/runtime/trace.ts` 负责订阅 runtime events，收集 turn-level trace，并通过 `RuntimeContext.trace` 暴露导出接口。
 - `src/core/runtime/replay.ts` 负责基于 session state 和 trace 重建指定 turn 的模型输入快照，并通过 `RuntimeContext.replay` 暴露查询接口。
-- `src/core/runtime/execution-policy.ts` 负责把 runtime config 和 agent 约束解析成 turn 级执行策略。
+- `src/core/session/execution-policy.ts` 负责把 runtime config 和 agent 约束解析成 turn 级执行策略。
 - `src/core/runtime/bootstrap.ts` 负责把 `RuntimeModules` 注册到传入的 runtime，或通过 `createRuntime()` 一次性创建并装配新的 runtime 实例。
 
 ### RuntimeContext vs RuntimeDeps
