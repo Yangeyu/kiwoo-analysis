@@ -7,17 +7,12 @@ import {
 } from "@/core/session/tool-part"
 import { isAbortError, isDoomLoop } from "@/core/session/retry"
 import type { ProcessorContext, ToolExecutionResult } from "@/core/session/processor-context"
-import type { AssistantWriter } from "@/core/session/assistant-writer"
-import { TurnStateMachine } from "@/core/session/turn-state-machine"
+import { TurnLifecycle } from "@/core/session/turn-lifecycle"
 import { toToolExecutionErrorInfo, validateToolArgs } from "@/core/tool/tool"
 import { createID, type Artifact, type ErrorInfo, type SessionHistoryMessage, type ToolContext, type ToolDefinition, type ToolPart } from "@/core/types"
 
 export class ToolCallExecutor {
-  constructor(
-    private readonly context: ProcessorContext,
-    private readonly writer: AssistantWriter,
-    private readonly turnState: TurnStateMachine,
-  ) {}
+  constructor(private readonly context: ProcessorContext, private readonly lifecycle: TurnLifecycle) {}
 
   async execute(chunk: { toolCallId: string; toolName: string; args: unknown }): Promise<ToolExecutionResult> {
     const outcome = await this.executeCall(chunk)
@@ -29,7 +24,7 @@ export class ToolCallExecutor {
     | { kind: "error"; error: ErrorInfo }
     | { kind: "stop" }
   > {
-    this.turnState.transition("executing-tool")
+    this.lifecycle.enterPhase("executing-tool")
 
     this.context.events.emit({
       type: "tool-call",
@@ -75,7 +70,7 @@ export class ToolCallExecutor {
         retryable: false,
         code: "tool_budget_exceeded",
       })
-      this.writer.fail({
+      this.lifecycle.fail({
         message: `Tool call budget exceeded for turn (${this.context.policy.budget.maxToolCalls})`,
         retryable: false,
         code: "tool_budget_exceeded",
@@ -115,10 +110,10 @@ export class ToolCallExecutor {
         retryable: false,
         code: "doom_loop",
       })
-      this.writer.fail({
-        message: `Potential doom loop detected for tool ${chunk.toolName}`,
-        retryable: false,
-        code: "doom_loop",
+        this.lifecycle.fail({
+          message: `Potential doom loop detected for tool ${chunk.toolName}`,
+          retryable: false,
+          code: "doom_loop",
       })
       this.context.session_store.appendTextPart(this.context.session.id, this.context.assistant.id, {
         id: createID(),
@@ -162,7 +157,7 @@ export class ToolCallExecutor {
           tool: chunk.toolName,
           error: "Aborted",
         })
-        this.writer.abort()
+        this.lifecycle.abort()
         return { kind: "stop" }
       }
 
@@ -187,7 +182,7 @@ export class ToolCallExecutor {
       used: this.context.policy.budget.repeatedToolFailureThreshold,
     })
 
-    this.writer.fail({
+    this.lifecycle.fail({
       message: `Repeated identical tool failures detected for ${toolName}`,
       retryable: false,
       code: "repeated_tool_failure",
@@ -242,7 +237,7 @@ export class ToolCallExecutor {
 
   private createToolContext(part: ToolPart): ToolContext {
     const context = this.context
-    const writer = this.writer
+    const lifecycle = this.lifecycle
 
     return {
       config: context.config,
@@ -300,10 +295,10 @@ export class ToolCallExecutor {
         throw new Error(`Nested tool execution stopped while running ${input.toolName}`)
       },
       captureStructuredOutput: async (output: unknown) => {
-        writer.captureStructuredOutput(output)
+        lifecycle.captureStructuredOutput(output)
       },
       captureArtifact: async (artifact: Artifact) => {
-        writer.captureArtifact(artifact)
+        lifecycle.captureArtifact(artifact)
       },
     }
   }

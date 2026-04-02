@@ -1,5 +1,4 @@
 import { LLM, type LLMChunk } from "@/core/llm/index"
-import { AssistantWriter } from "@/core/session/assistant-writer"
 import {
   createProcessorContext,
   resolveProcessorResult,
@@ -15,7 +14,7 @@ import {
   toErrorInfo,
 } from "@/core/session/retry"
 import { ToolCallExecutor } from "@/core/session/tool-executor"
-import { TurnStateMachine } from "@/core/session/turn-state-machine"
+import { TurnLifecycle } from "@/core/session/turn-lifecycle"
 import type { ProcessorResult } from "@/core/types"
 
 type NonToolChunk = Exclude<LLMChunk, { type: "tool-call" | "error" }>
@@ -23,17 +22,15 @@ type NonToolChunk = Exclude<LLMChunk, { type: "tool-call" | "error" }>
 export namespace SessionProcessor {
   export async function process(input: ProcessorInput): Promise<ProcessorResult> {
     const context = createProcessorContext(input)
-    const turnState = new TurnStateMachine(context)
-    const writer = new AssistantWriter(context, turnState)
-    const toolExecutor = new ToolCallExecutor(context, writer, turnState)
+    const lifecycle = new TurnLifecycle(context)
+    const toolExecutor = new ToolCallExecutor(context, lifecycle)
 
-    turnState.start()
+    lifecycle.start()
 
     const attemptResult = await runProcessorWithRetry({
       input,
       context,
-      turnState,
-      writer,
+      lifecycle,
       toolExecutor,
     })
 
@@ -45,8 +42,7 @@ export namespace SessionProcessor {
 async function runProcessorWithRetry(input: {
   input: ProcessorInput
   context: ProcessorContext
-  turnState: TurnStateMachine
-  writer: AssistantWriter
+  lifecycle: TurnLifecycle
   toolExecutor: ToolCallExecutor
 }): Promise<
   | { kind: "completed"; sawToolCall: boolean }
@@ -80,8 +76,7 @@ async function runProcessorWithRetry(input: {
       run: () =>
         runStreamOnce({
           input: input.input,
-          turnState: input.turnState,
-          writer: input.writer,
+          lifecycle: input.lifecycle,
           toolExecutor: input.toolExecutor,
         }),
     })
@@ -90,20 +85,19 @@ async function runProcessorWithRetry(input: {
     return { kind: "completed", sawToolCall: runResult.sawToolCall }
   } catch (error) {
     if (isAbortError(error)) {
-      input.writer.abort()
+      input.lifecycle.abort()
       return { kind: "stop" }
     }
 
     const retryInfo = classifyRetry(error)
-    input.writer.fail(toErrorInfo(error, retryInfo.retryable))
+    input.lifecycle.fail(toErrorInfo(error, retryInfo.retryable))
     return { kind: "stop" }
   }
 }
 
 async function runStreamOnce(input: {
   input: ProcessorInput
-  turnState: TurnStateMachine
-  writer: AssistantWriter
+  lifecycle: TurnLifecycle
   toolExecutor: ToolCallExecutor
 }): Promise<
   | { kind: "completed"; sawToolCall: boolean }
@@ -112,7 +106,7 @@ async function runStreamOnce(input: {
   let sawToolCall = false
   const result = LLM.stream(input.input)
 
-  input.turnState.transition("streaming")
+  input.lifecycle.enterPhase("streaming")
 
   for await (const chunk of result.fullStream) {
     input.input.abort.throwIfAborted()
@@ -121,7 +115,7 @@ async function runStreamOnce(input: {
       sawToolCall = true
       const toolResult = await input.toolExecutor.execute(chunk)
       if (toolResult.kind === "stop") return { kind: "stop" }
-      input.turnState.transition("streaming")
+      input.lifecycle.enterPhase("streaming")
       continue
     }
 
@@ -129,7 +123,7 @@ async function runStreamOnce(input: {
       throw chunk.error
     }
 
-    applyActions(input.writer, interpretChunk(chunk))
+    applyActions(input.lifecycle, interpretChunk(chunk))
   }
 
   return { kind: "completed", sawToolCall }
@@ -146,18 +140,18 @@ function interpretChunk(chunk: NonToolChunk): ProcessorAction[] {
   }
 }
 
-function applyActions(writer: AssistantWriter, actions: ProcessorAction[]): void {
+function applyActions(lifecycle: TurnLifecycle, actions: ProcessorAction[]): void {
   for (const action of actions) {
     if (action.kind === "append-reasoning") {
-      writer.appendReasoning(action.textDelta)
+      lifecycle.appendReasoning(action.textDelta)
       continue
     }
 
     if (action.kind === "append-text") {
-      writer.appendText(action.textDelta)
+      lifecycle.appendText(action.textDelta)
       continue
     }
 
-    writer.finish(action.finishReason)
+    lifecycle.finish(action.finishReason)
   }
 }

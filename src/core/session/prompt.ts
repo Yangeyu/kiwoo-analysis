@@ -1,9 +1,14 @@
 import type { RuntimeDeps } from "@/core/runtime/context"
-import { createTurnAbortSignal, resolveTurnExecutionPolicy, type TurnExecutionPolicy } from "@/core/session/execution-policy"
+import { createTurnAbortSignal, resolveTurnExecutionPolicy } from "@/core/session/execution-policy"
 import { toModelMessages } from "@/core/session/model-message"
 import { SessionProcessor } from "@/core/session/processor"
 import { buildSystemPrompt } from "@/core/session/system"
-import { applyTurnOutcome, resolveTurnOutcome } from "@/core/session/turn-outcome"
+import {
+  applyTurnOutcome,
+  resolveTurnOutcome,
+  type PromptLoopContext,
+  type PromptTurnState,
+} from "@/core/session/turn-lifecycle"
 import { createID, type AgentInfo, type AssistantMessage, type ProviderModel, type ToolDefinition, type UserMessage } from "@/core/types"
 import { z } from "zod"
 
@@ -16,20 +21,6 @@ type PromptInput = {
   model?: ProviderModel
   format?: UserMessage["format"]
   abort?: AbortSignal
-}
-
-type LoopContext = RuntimeDeps & {
-  sessionID: string
-  abort: AbortSignal
-  step: number
-}
-
-type LoopState = {
-  user: UserMessage
-  agent: AgentInfo
-  policy: TurnExecutionPolicy
-  tools: ToolDefinition[]
-  assistant: AssistantMessage
 }
 
 export namespace SessionPrompt {
@@ -56,7 +47,7 @@ export namespace SessionPrompt {
   }
 
   export async function loop(input: { sessionID: string; abort?: AbortSignal }, deps: RuntimeDeps) {
-    const context: LoopContext = {
+    const context: PromptLoopContext = {
       config: deps.config,
       agent_registry: deps.agent_registry,
       session_store: deps.session_store,
@@ -115,7 +106,7 @@ function emitSessionStart(deps: RuntimeDeps, sessionID: string, user: UserMessag
   })
 }
 
-async function prepareLoopState(context: LoopContext): Promise<LoopState> {
+async function prepareLoopState(context: PromptLoopContext): Promise<PromptTurnState> {
   const session = context.session_store.get(context.sessionID)
   const user = resolveLastUserMessage(context.session_store, session.id)
   const agent = context.agent_registry.get(user.agent)
@@ -141,7 +132,7 @@ async function prepareLoopState(context: LoopContext): Promise<LoopState> {
   }
 }
 
-async function runLoopStep(context: LoopContext, state: LoopState) {
+async function runLoopStep(context: PromptLoopContext, state: PromptTurnState) {
   const session = context.session_store.get(context.sessionID)
   const system = buildSystemPrompt({
     agent: state.agent,
@@ -209,7 +200,7 @@ function createAssistantMessage(sessionID: string, user: UserMessage, agent: Age
   }
 }
 
-function stopForExhaustedSessionBudget(context: LoopContext, state: LoopState) {
+function stopForExhaustedSessionBudget(context: PromptLoopContext, state: PromptTurnState) {
   context.events.emit({
     type: "budget-hit",
     sessionID: context.sessionID,

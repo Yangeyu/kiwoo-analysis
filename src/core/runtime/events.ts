@@ -1,4 +1,4 @@
-import type { TurnOutcomeReason } from "@/core/types"
+import type { TurnOutcomeReason, TurnPhase } from "@/core/types"
 
 type RuntimeEvent =
   | { type: "session-start"; sessionID: string; agent: string; text: string }
@@ -39,7 +39,7 @@ type RuntimeEvent =
       sessionID: string
       agent: string
       messageID: string
-      phase: "starting" | "streaming" | "reasoning" | "responding" | "executing-tool" | "finishing"
+      phase: TurnPhase
     }
   | { type: "reasoning"; sessionID: string; agent: string; textDelta: string }
   | { type: "text"; sessionID: string; agent: string; textDelta: string }

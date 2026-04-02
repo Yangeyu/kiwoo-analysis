@@ -7,6 +7,8 @@ export type FinishReason = "stop" | "tool-calls" | "length" | "error"
 
 export type ProcessorResult = "continue" | "stop" | "compact"
 
+export type TurnPhase = "starting" | "streaming" | "reasoning" | "responding" | "executing-tool" | "finishing"
+
 export type TurnOutcomeReason =
   | "tool_calls"
   | "empty_assistant"

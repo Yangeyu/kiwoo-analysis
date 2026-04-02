@@ -13,11 +13,9 @@
 - `src/core/session/prompt.ts`
 - `src/core/session/processor.ts`
 - `src/core/session/processor-context.ts`
-- `src/core/session/assistant-writer.ts`
 - `src/core/session/tool-executor.ts`
 - `src/core/session/execution-policy.ts`
-- `src/core/session/turn-state-machine.ts`
-- `src/core/session/turn-outcome.ts`
+- `src/core/session/turn-lifecycle.ts`
 - `src/core/session/tool-part.ts`
 - `src/core/session/store/`
 - `src/core/session/model-message.ts`
@@ -94,12 +92,10 @@
 - `processor.ts` 只保留 turn orchestration、stream loop 与重试控制
 - `execution-policy.ts` 统一提供 retry、timeout、step/tool budgets、repeated failure threshold
 - `processor-context.ts` 集中维护 step 执行上下文与结果判定
-- `turn-state-machine.ts` 负责 phase 迁移和 turn lifecycle events
-- `turn-outcome.ts` 负责把单 turn 的处理结果收口成显式 outcome，并统一应用 continue / stop / compact 规则
-- `assistant-writer.ts` 负责 assistant message / text / reasoning / artifact 写回
+- `turn-lifecycle.ts` 统一负责 turn phase、生命周期事件、assistant 写回，以及 outcome 的 continue / stop / compact 收口
 - `tool-executor.ts` 负责 tool-call 的校验、执行、失败策略与 tool context 组装
 
-这样把“流程编排”“状态切换”“持久化写操作”“工具执行”分开，避免 processor 本身继续膨胀。
+这样把“流程编排”“turn lifecycle 收口”“工具执行”分开，避免 processor 本身继续膨胀。
 
 当前 runtime event 流属于 `runtime.events`，会在模型调用发生可重试错误时发出 `retry` 事件，包含 `attempt`、`delayMs`、`category`、`reason` 和错误消息，方便 logger 或上层观察重试行为。
 

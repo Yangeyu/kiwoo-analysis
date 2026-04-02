@@ -13,6 +13,7 @@ import type {
   SessionInfo,
   TextPart,
   ToolDefinition,
+  TurnPhase,
   UserMessage,
 } from "@/core/types"
 
@@ -32,8 +33,6 @@ export type ProcessorInput = {
   policy: TurnExecutionPolicy
   abort: AbortSignal
 }
-
-export type TurnPhase = "starting" | "streaming" | "reasoning" | "responding" | "executing-tool" | "finishing"
 
 export type ProcessorAction =
   | { kind: "append-reasoning"; textDelta: string }
