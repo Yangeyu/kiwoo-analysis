@@ -1,4 +1,5 @@
 import { getDelegationDepthInfo, resolveSessionDepth } from "@/core/session/execution-policy"
+import type { AgentRegistry } from "@/core/agent/registry"
 import { SessionPrompt } from "@/core/session/prompt"
 import type { ISessionStore } from "@/core/session/store"
 import { defineTool } from "@/core/tool/tool"
@@ -53,6 +54,28 @@ export const TaskResumeTool: ToolDefinition<TaskResumeArgs> = createTaskTool({
   parameters: TaskResumeParameters,
   resume: true,
 })
+
+export function withDelegationDescription(input: {
+  tool: ToolDefinition<unknown>
+  agentRegistry: AgentRegistry
+}) {
+  const availableAgents = input.agentRegistry.list().filter((agent) => agent.mode === "subagent")
+  const availableAgentText = availableAgents.length > 0
+    ? availableAgents
+      .map((agent) => `- ${agent.name}: ${agent.description ?? "Specialist subagent"}`)
+      .join("\n")
+    : "- No subagents are currently registered"
+
+  return {
+    ...input.tool,
+    description: [
+      input.tool.description,
+      "",
+      "Available subagents:",
+      availableAgentText,
+    ].join("\n"),
+  } satisfies ToolDefinition<unknown>
+}
 
 function createTaskTool<P extends z.ZodTypeAny>(input: {
   id: string
@@ -113,8 +136,8 @@ function createTaskTool<P extends z.ZodTypeAny>(input: {
       }
     },
     async execute(args, ctx) {
-      const agent = ctx.agent_registry.get(args.subagent_type)
-      if (agent.mode !== "subagent") {
+      const agent = ctx.agent_registry.list().find((candidate) => candidate.name === args.subagent_type)
+      if (!agent || agent.mode !== "subagent") {
         throw new Error(`Agent ${args.subagent_type} is not available for task delegation`)
       }
 
@@ -270,12 +293,10 @@ function resolveDelegationArtifact(
 }
 
 function inferArtifactType(agentName: string) {
-  if (agentName === "board_report") return "board_report"
   return "deliverable"
 }
 
 function inferArtifactFormat(agentName: string): ArtifactFormat {
-  if (agentName === "board_report") return "markdown"
   return "text"
 }
 

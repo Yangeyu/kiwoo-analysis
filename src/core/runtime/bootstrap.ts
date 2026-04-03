@@ -45,7 +45,6 @@ export function registerRuntimeModules(runtime: RuntimeContext, modules: Runtime
 
     registered.set(module.name, module)
   }
-
   return runtime
 }
 

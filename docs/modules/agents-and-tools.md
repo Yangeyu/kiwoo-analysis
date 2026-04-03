@@ -33,12 +33,17 @@
 - `build`: 主 agent，默认入口，拥有最完整的工具权限。
 - `general`: 通用 subagent，适合被 `task` 工具创建的 child session 承接中间调查，也可被 `task_resume` 继续复用。
 
+registry 维护全局 agent 定义，用于：
+
+- 按名字解析当前 session 或 child session 要运行的 agent
+- 提供完整 agent 列表，供 `task` 在工具层过滤可委派的 subagents
+
 ## Agent Prompt
 
 `src/core/agent/prompts.ts` 中的 prompt 主要描述策略，不做实现：
 
 - `build` 倾向直接完成任务，必要时委派 specialist
-- 遇到 board report 请求时，要求委派给 `board_report`
+- 不在 core 中写死业务模块的委派目标
 
 ## Tool 注册
 
@@ -132,6 +137,7 @@ tool metadata key 约定优先使用 `camelCase`，例如：
   - `task`: 创建新的 child session
   - `task_resume`: 复用已有 child session
   - 调用子 agent 再次进入 `SessionPrompt.prompt()`
+  - 可委派 agent 列表来自 `agentRegistry.list()`，再在 `task` 工具层过滤 `mode === "subagent"`
   - 创建或续跑 child session 前，会校验 `subagent_max_depth`，避免无限递归委派
   - 支持显式 `intent`（`investigate` / `draft` / `deliver`）
   - 当子 agent 产出最终交付物时，可返回带 `artifactType`、`deliveryMode`、`contentFormat` 的结果 metadata
@@ -141,6 +147,7 @@ tool metadata key 约定优先使用 `camelCase`，例如：
 ## 设计重点
 
 - agent/tool registry 属于运行时依赖，应由入口层从 `RuntimeContext` 装配，再通过 `RuntimeDeps` / `ToolContext` 往执行链传递，而不是依赖模块级全局表。
+- 当前 subagent 委派采用平铺式可见模型：所有 `mode: "subagent"` 的 agents 都可作为 delegation 目标；可委派范围的过滤在 `task` 工具层完成，而不是在 registry 层增加专用 API。
 - tool 执行链优先通过 `ToolContext` / `RuntimeDeps` 显式拿到 `agent_registry`、`tool_registry`、`session_store`。
 - tool 的 schema、描述、执行逻辑尽量放在一起。
 - tool 的横切逻辑优先放到 `defineTool()` 的 hook 和归一化阶段，而不是散落在每个 `execute()` 中。

@@ -1,5 +1,5 @@
+import type { BoardItem, BoardLink, BoardSnapshot, BoardSnapshotFilters } from "@/board/types"
 import { queryRows } from "@/integrations/postgres/client"
-import type { BoardItem, BoardLink, BoardSnapshot } from "@/board/types"
 
 type BoardRow = {
   id: string
@@ -55,6 +55,78 @@ export async function loadBoardSnapshot(boardId: string): Promise<BoardSnapshot>
   const items = normalizeItems(boardData.nodes)
   const links = normalizeLinks(boardData.edges)
 
+  return toBoardSnapshot(board, boardData, items, links)
+}
+
+export async function loadBoardSnapshots(filters: BoardSnapshotFilters = {}): Promise<BoardSnapshot[]> {
+  const boardIds = filters.boardIds?.filter(Boolean)
+  const limit = filters.limit ?? boardIds?.length ?? 20
+
+  let boards: BoardRow[] = []
+
+  if (boardIds?.length) {
+    const params = boardIds.map((_, index) => `$${index + 1}`).join(", ")
+    boards = await queryRows<BoardRow>({
+      text: `
+        select id, user_id, title, cover_url, is_public, version, created_at, updated_at
+        from boards
+        where id in (${params})
+      `,
+      values: boardIds,
+    })
+  } else {
+    const clauses: string[] = []
+    const values: unknown[] = []
+
+    if (filters.userId) {
+      values.push(filters.userId)
+      clauses.push(`user_id = $${values.length}`)
+    }
+    if (filters.publicOnly) {
+      clauses.push("is_public = 1")
+    }
+
+    values.push(limit)
+    boards = await queryRows<BoardRow>({
+      text: `
+        select id, user_id, title, cover_url, is_public, version, created_at, updated_at
+        from boards
+        ${clauses.length ? `where ${clauses.join(" and ")}` : ""}
+        order by updated_at desc nulls last, id desc
+        limit $${values.length}
+      `,
+      values,
+    })
+  }
+
+  const orderedBoards = boardIds?.length
+    ? boardIds.map((id) => boards.find((board) => board.id === id)).filter((board): board is BoardRow => Boolean(board))
+    : boards
+
+  return Promise.all(orderedBoards.slice(0, limit).map(async (board) => {
+    const boardDataRows = await queryRows<BoardDataRow>({
+      text: `
+        select id, board_id, nodes, edges, viewport
+        from board_data
+        where board_id = $1
+        order by id desc
+        limit 1
+      `,
+      values: [board.id],
+    })
+
+    const boardData = boardDataRows[0]
+    if (!boardData) {
+      throw new Error(`Board data not found: ${board.id}`)
+    }
+
+    const items = normalizeItems(boardData.nodes)
+    const links = normalizeLinks(boardData.edges)
+    return toBoardSnapshot(board, boardData, items, links)
+  }))
+}
+
+function toBoardSnapshot(board: BoardRow, boardData: BoardDataRow, items: BoardItem[], links: BoardLink[]): BoardSnapshot {
   return {
     board: {
       id: board.id,
@@ -127,7 +199,7 @@ function countItemTypes(items: BoardItem[]) {
 }
 
 function asRecord(value: unknown) {
-  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined
 }
 
 function asString(value: unknown) {

@@ -72,6 +72,7 @@ export type Artifact = {
 
 export type AgentInfo = {
   name: string
+  description?: string
   mode: "primary" | "subagent"
   prompt?: string
   tools?: Record<string, boolean>

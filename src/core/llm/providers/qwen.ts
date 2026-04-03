@@ -75,8 +75,8 @@ type QwenContentPayload = {
 type QwenRequestBody = {
   model: string
   messages: QwenRequestMessage[]
-  tools: QwenToolDefinition[]
-  tool_choice: "required" | "auto"
+  tools?: QwenToolDefinition[]
+  tool_choice?: "required" | "auto"
   temperature: number
   stream: true
   stream_options: {
@@ -101,6 +101,7 @@ export const qwenStream = createStreamingProvider({
 
 function buildQwenRequest(input: LLMInput): ProviderRequest<QwenRequestBody> {
   const model = resolveModelSpec()
+  const tools = buildQwenTools(input.tools)
 
   return {
     url: `${getBaseURL()}/chat/completions`,
@@ -108,8 +109,12 @@ function buildQwenRequest(input: LLMInput): ProviderRequest<QwenRequestBody> {
     body: {
       model: input.user.model.modelID || model.defaults.modelID,
       messages: buildQwenMessages(input),
-      tools: buildQwenTools(input.tools),
-      tool_choice: "auto",
+      ...(tools.length > 0
+        ? {
+            tools,
+            tool_choice: "auto" as const,
+          }
+        : {}),
       temperature: model.defaults.temperature,
       stream: true,
       stream_options: {

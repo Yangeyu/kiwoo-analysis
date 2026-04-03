@@ -1,5 +1,6 @@
 import type { RuntimeDeps } from "@/core/runtime/context"
 import { createTurnAbortSignal, resolveTurnExecutionPolicy } from "@/core/session/execution-policy"
+import { withDelegationDescription } from "@/core/tool/task"
 import { toModelMessages } from "@/core/session/model-message"
 import { SessionProcessor } from "@/core/session/processor"
 import { buildSystemPrompt } from "@/core/session/system"
@@ -119,7 +120,7 @@ async function prepareLoopState(context: PromptLoopContext): Promise<PromptTurnS
     agent: agent.name,
   })
 
-  const tools = await resolveToolsForTurn(context.tool_registry, agent, user.format)
+  const tools = await resolveToolsForTurn(context.tool_registry, context.agent_registry, agent, user.format)
   const assistant = createAssistantMessage(session.id, user, agent)
   context.session_store.appendAssistantMessage(session.id, assistant)
 
@@ -220,8 +221,22 @@ function stopForExhaustedSessionBudget(context: PromptLoopContext, state: Prompt
   })
 }
 
-async function resolveToolsForTurn(toolRegistry: RuntimeDeps["tool_registry"], agent: AgentInfo, format: UserMessage["format"]) {
-  const tools = [...(await toolRegistry.toolsForAgent(agent))]
+async function resolveToolsForTurn(
+  toolRegistry: RuntimeDeps["tool_registry"],
+  agentRegistry: RuntimeDeps["agent_registry"],
+  agent: AgentInfo,
+  format: UserMessage["format"],
+) {
+  const tools = [...(await toolRegistry.toolsForAgent(agent))].map((tool) => {
+    if (tool.id !== "task" && tool.id !== "task_resume") {
+      return tool
+    }
+
+    return withDelegationDescription({
+      tool,
+      agentRegistry,
+    })
+  })
 
   if (format?.type === "json_schema") {
     tools.push(createStructuredOutputTool(format.schema))

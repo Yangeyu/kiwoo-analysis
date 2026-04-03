@@ -9,7 +9,7 @@ const ConfigSchema = z.object({
   model_retry_max_delay_ms: z.coerce.number().int().min(1).default(4000),
   session_max_steps: z.coerce.number().int().min(1).default(24),
   subagent_max_depth: z.coerce.number().int().min(0).default(2),
-  turn_timeout_ms: z.coerce.number().int().min(1).default(120000),
+  turn_timeout_ms: z.coerce.number().int().min(1).default(300000),
   turn_max_tool_calls: z.coerce.number().int().min(1).default(8),
   repeated_tool_failure_threshold: z.coerce.number().int().min(1).default(3),
 })

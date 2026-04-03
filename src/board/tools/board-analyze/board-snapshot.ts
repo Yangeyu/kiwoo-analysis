@@ -1,4 +1,4 @@
-import { loadBoardSnapshot } from "@/board/snapshot"
+import { loadBoardSnapshot } from "@/board/shared/snapshot"
 import { defineTool } from "@/core/tool/tool"
 import { z } from "zod"
 
