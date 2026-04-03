@@ -199,6 +199,7 @@ function createTaskTool<P extends z.ZodTypeAny>(input: {
       }, {
         config: ctx.config,
         agent_registry: ctx.agent_registry,
+        skill_registry: ctx.skill_registry,
         session_store: ctx.session_store,
         tool_registry: ctx.tool_registry,
         events: ctx.events,

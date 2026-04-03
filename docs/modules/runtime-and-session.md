@@ -9,7 +9,8 @@
 - `src/core/config.ts`
 - `src/core/runtime/bootstrap.ts`
 - `src/core/runtime/context.ts`
-- `src/core/runtime/modules.ts`
+- `src/core/plugin/manager.ts`
+- `src/app/plugins.ts`
 - `src/core/session/prompt.ts`
 - `src/core/session/processor.ts`
 - `src/core/session/processor-context.ts`
@@ -26,16 +27,16 @@
 ## 配置与运行时上下文
 
 - `src/core/config.ts` 只负责环境变量解析、schema 校验、默认值和缓存读取，不负责创建任何运行时依赖。
-- `src/core/runtime/context.ts` 负责创建新的 `RuntimeContext` 实例，把 `config`、`session_store`、`agent_registry`、`tool_registry`、`events` 装配在同一个 runtime 上。
+- `src/core/runtime/context.ts` 负责创建新的 `RuntimeContext` 实例，把 `config`、`session_store`、`agent_registry`、`skill_registry`、`tool_registry`、`events` 装配在同一个 runtime 上。
 - `src/core/runtime/trace.ts` 负责订阅 runtime events，收集 turn-level trace，并通过 `RuntimeContext.trace` 暴露导出接口。
 - `src/core/runtime/replay.ts` 负责基于 session state 和 trace 重建指定 turn 的模型输入快照，并通过 `RuntimeContext.replay` 暴露查询接口。
 - `src/core/session/execution-policy.ts` 负责把 runtime config 和 agent 约束解析成 turn 级执行策略。
-- `src/core/runtime/bootstrap.ts` 负责把 `RuntimeModules` 注册到传入的 runtime，或通过 `createRuntime()` 一次性创建并装配新的 runtime 实例。
+- `src/core/runtime/bootstrap.ts` 负责把传入的 runtime plugins 注册到 runtime，或通过 `createRuntime()` 一次性创建并装配新的 runtime 实例。
 
 ### RuntimeContext vs RuntimeDeps
 
 - `RuntimeContext` 表示完整运行时，只应由 bootstrap、CLI 入口、TUI 入口这类组合根持有；每次调用 `createRuntime()` 都会得到一套独立实例。
-- `RuntimeDeps` 是执行链依赖切片，包含 `config`、`agent_registry`、`session_store`、`tool_registry`、`events`，供 `SessionPrompt`、`SessionProcessor`、tool execute context 等内部链路传递。
+- `RuntimeDeps` 是执行链依赖切片，包含 `config`、`agent_registry`、`skill_registry`、`session_store`、`tool_registry`、`events`，供 `SessionPrompt`、`SessionProcessor`、tool execute context 等内部链路传递。
 - `runPrompt()` 现在要求调用方显式传入 `runtime`，不再负责隐式初始化运行时。
 - 规则上，能拿 `RuntimeDeps` 的地方就不要持有 `RuntimeContext`；只有需要创建/装配/启动运行时的边界模块才应该碰 `RuntimeContext`。
 
@@ -49,15 +50,17 @@
 
 ## Runtime bootstrap
 
-`src/core/runtime/bootstrap.ts` 现在按 runtime 实例遍历 `RuntimeModules`：
+`src/core/runtime/bootstrap.ts` 现在通过 plugin manager 按 runtime 实例遍历 plugins：
 
 - 创建新的 `RuntimeContext`
-- 对 module 名称做重复保护，并保证同一个 runtime 上的重复注册是幂等的
-- 向 `RuntimeContext.tool_registry` 注册每个模块暴露的 tools
-- 向 `RuntimeContext.agent_registry` 注册每个模块暴露的 agents
+- 对 plugin 名称做重复保护，并保证同一个 runtime 上的重复注册是幂等的
+- 向 `RuntimeContext.tool_registry` 注册每个插件暴露的 tools
+- 向 `RuntimeContext.agent_registry` 注册每个插件暴露的 agents
+- 向 `RuntimeContext.skill_registry` 注册每个插件静态声明的 skills
+- 在最小插件模型下支持可选 `setup` / `dispose` 生命周期
 - 返回这套已装配完成的 runtime，供 CLI、TUI、测试或脚本独立使用
 
-这让 core/board 之类的能力以模块方式接入，而不是散落在入口文件里。
+这让 core/board 之类的能力以插件方式接入，而不是散落在入口文件里；具体装配集合由 `app/` 负责，而不是让 core 反向依赖业务插件。
 
 ## SessionPrompt: 外层循环
 
@@ -188,7 +191,7 @@ store 负责维护 session 状态：
 
 ## System prompt 与模型消息
 
-- `src/core/session/system.ts` 负责拼装每一步系统提示，包括最终步警告与 structured output 约束。
+- `src/core/session/system.ts` 负责拼装每一步系统提示，包括最终步警告、available skills 提示与 structured output 约束。
 - `src/core/session/model-message.ts` 负责把 session 内部消息映射为 provider 可消费的 `ModelMessage[]`。
 
 ## Compaction

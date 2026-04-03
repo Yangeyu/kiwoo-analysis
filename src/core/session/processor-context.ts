@@ -3,6 +3,7 @@ import type { Config } from "@/core/config"
 import type { ModelMessage } from "@/core/llm/index"
 import type { TurnExecutionPolicy } from "@/core/session/execution-policy"
 import type { RuntimeEventBus } from "@/core/runtime/events"
+import type { SkillRegistry } from "@/core/skill/registry"
 import type { ISessionStore } from "@/core/session/store"
 import type { ToolRegistry } from "@/core/tool/registry"
 import type {
@@ -20,6 +21,7 @@ import type {
 export type ProcessorInput = {
   config: Config
   agent_registry: AgentRegistry
+  skill_registry: SkillRegistry
   session_store: ISessionStore
   events: RuntimeEventBus
   session: SessionInfo

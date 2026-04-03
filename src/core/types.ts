@@ -1,4 +1,5 @@
 import type { RuntimeDeps } from "@/core/runtime/context"
+import type { RuntimePlugin } from "@/core/plugin/types"
 import type { z } from "zod"
 
 export type Role = "user" | "assistant"
@@ -172,11 +173,7 @@ export type ToolDefinition<TArgs = unknown> = {
 
 export type AnyToolDefinition = ToolDefinition<unknown>
 
-export type RuntimeModule = {
-  name: string
-  agents?: AgentInfo[]
-  tools?: AnyToolDefinition[]
-}
+export type RuntimeModule = RuntimePlugin
 
 export type UserMessage = {
   id: string

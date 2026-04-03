@@ -1,5 +1,6 @@
+import { createAppRuntime } from "@/app/runtime"
 import { attachConsoleLogger, type OutputMode } from "@/core/runtime/logger"
-import { createRuntime, runPrompt } from "@/core/runtime/bootstrap"
+import { runPrompt } from "@/core/runtime/bootstrap"
 import { startTui } from "@/tui/app"
 
 function parseArgs(argv: string[]) {
@@ -86,7 +87,7 @@ function printDebugSection(label: string, value: unknown) {
   console.log(JSON.stringify(value, null, 2))
 }
 
-function toReplayDebugSnapshot(runtime: ReturnType<typeof createRuntime>, selector: { sessionID: string; step: number } | { sessionID: string; messageID: string }) {
+function toReplayDebugSnapshot(runtime: Awaited<ReturnType<typeof createAppRuntime>>, selector: { sessionID: string; step: number } | { sessionID: string; messageID: string }) {
   const replay = runtime.replay.turnInput(selector)
   return {
     sessionID: replay.sessionID,
@@ -108,7 +109,7 @@ function toReplayDebugSnapshot(runtime: ReturnType<typeof createRuntime>, select
 }
 
 async function main() {
-  const runtime = createRuntime()
+  const runtime = await createAppRuntime()
   const parsed = parseArgs(process.argv.slice(2))
   validateArgs(parsed)
   const defaultAgent = runtime.agent_registry.defaultAgent().name

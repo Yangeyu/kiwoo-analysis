@@ -254,6 +254,7 @@ export class ToolCallExecutor {
       },
       session_store: context.session_store,
       agent_registry: context.agent_registry,
+      skill_registry: context.skill_registry,
       tool_registry: context.tool_registry,
       metadata: async (metadataUpdate: { title?: string; metadata?: Record<string, unknown> }) => {
         const latest = context.session_store.getParts(context.session.id, context.assistant.id).find(

@@ -1,6 +1,7 @@
 import type { RuntimeDeps } from "@/core/runtime/context"
 import { createTurnAbortSignal, resolveTurnExecutionPolicy } from "@/core/session/execution-policy"
 import { withDelegationDescription } from "@/core/tool/task"
+import { withSkillDescription } from "@/core/tool/skill"
 import { toModelMessages } from "@/core/session/model-message"
 import { SessionProcessor } from "@/core/session/processor"
 import { buildSystemPrompt } from "@/core/session/system"
@@ -51,6 +52,7 @@ export namespace SessionPrompt {
     const context: PromptLoopContext = {
       config: deps.config,
       agent_registry: deps.agent_registry,
+      skill_registry: deps.skill_registry,
       session_store: deps.session_store,
       sessionID: input.sessionID,
       abort: input.abort ?? new AbortController().signal,
@@ -120,7 +122,13 @@ async function prepareLoopState(context: PromptLoopContext): Promise<PromptTurnS
     agent: agent.name,
   })
 
-  const tools = await resolveToolsForTurn(context.tool_registry, context.agent_registry, agent, user.format)
+  const tools = await resolveToolsForTurn(
+    context.tool_registry,
+    context.agent_registry,
+    context.skill_registry,
+    agent,
+    user.format,
+  )
   const assistant = createAssistantMessage(session.id, user, agent)
   context.session_store.appendAssistantMessage(session.id, assistant)
 
@@ -138,6 +146,7 @@ async function runLoopStep(context: PromptLoopContext, state: PromptTurnState) {
   const system = buildSystemPrompt({
     agent: state.agent,
     format: state.user.format,
+    skills: context.skill_registry.list(),
     step: context.step,
     maxSteps: state.policy.budget.maxSteps,
   })
@@ -164,6 +173,7 @@ async function runLoopStep(context: PromptLoopContext, state: PromptTurnState) {
       session_store: context.session_store,
       events: context.events,
       agent_registry: context.agent_registry,
+      skill_registry: context.skill_registry,
       session,
       user: state.user,
       assistant: state.assistant,
@@ -224,10 +234,18 @@ function stopForExhaustedSessionBudget(context: PromptLoopContext, state: Prompt
 async function resolveToolsForTurn(
   toolRegistry: RuntimeDeps["tool_registry"],
   agentRegistry: RuntimeDeps["agent_registry"],
+  skillRegistry: RuntimeDeps["skill_registry"],
   agent: AgentInfo,
   format: UserMessage["format"],
 ) {
   const tools = [...(await toolRegistry.toolsForAgent(agent))].map((tool) => {
+    if (tool.id === "skill") {
+      return withSkillDescription({
+        tool,
+        skills: skillRegistry.list(),
+      })
+    }
+
     if (tool.id !== "task" && tool.id !== "task_resume") {
       return tool
     }

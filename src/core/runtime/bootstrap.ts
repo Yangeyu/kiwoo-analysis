@@ -1,58 +1,15 @@
 import { createRuntimeContext, type RuntimeContext } from "@/core/runtime/context"
-import { RuntimeModules } from "@/core/runtime/modules"
+import { disposeRuntimePlugins, registerRuntimePlugins } from "@/core/plugin/manager"
 import { SessionPrompt } from "@/core/session/prompt"
 import { loadConfigFromEnv, type Config } from "@/core/config"
-import type { RuntimeModule, UserMessage } from "@/core/types"
+import type { RuntimePlugin } from "@/core/plugin/types"
+import type { UserMessage } from "@/core/types"
 
-const runtimeModuleState = new WeakMap<RuntimeContext, Map<string, RuntimeModule>>()
-
-function registeredModulesFor(runtime: RuntimeContext) {
-  const existing = runtimeModuleState.get(runtime)
-  if (existing) return existing
-  const created = new Map<string, RuntimeModule>()
-  runtimeModuleState.set(runtime, created)
-  return created
+export async function createRuntime(options?: { config?: Config; plugins?: RuntimePlugin[] }) {
+  return registerRuntimePlugins(createRuntimeContext(options?.config), options?.plugins)
 }
 
-function assertNoDuplicateModules(modules: RuntimeModule[]) {
-  const seen = new Set<string>()
-  for (const module of modules) {
-    if (seen.has(module.name)) {
-      throw new Error(`Duplicate runtime module registration: ${module.name}`)
-    }
-    seen.add(module.name)
-  }
-}
-
-export function registerRuntimeModules(runtime: RuntimeContext, modules: RuntimeModule[] = RuntimeModules) {
-  assertNoDuplicateModules(modules)
-  const registered = registeredModulesFor(runtime)
-
-  for (const module of modules) {
-    const prior = registered.get(module.name)
-    if (prior === module) continue
-    if (prior) {
-      throw new Error(`Runtime already registered a different module named ${module.name}`)
-    }
-
-    for (const tool of module.tools ?? []) {
-      runtime.tool_registry.register(tool)
-    }
-
-    for (const agent of module.agents ?? []) {
-      runtime.agent_registry.register(agent)
-    }
-
-    registered.set(module.name, module)
-  }
-  return runtime
-}
-
-export function createRuntime(options?: { config?: Config; modules?: RuntimeModule[] }) {
-  return registerRuntimeModules(createRuntimeContext(options?.config), options?.modules)
-}
-
-export function createTestRuntime(options?: { config?: Partial<Config>; modules?: RuntimeModule[] }) {
+export async function createTestRuntime(options?: { config?: Partial<Config>; plugins?: RuntimePlugin[] }) {
   const config = {
     ...loadConfigFromEnv({
       ...process.env,
@@ -63,8 +20,12 @@ export function createTestRuntime(options?: { config?: Partial<Config>; modules?
 
   return createRuntime({
     config,
-    modules: options?.modules,
+    plugins: options?.plugins,
   })
+}
+
+export async function disposeRuntime(runtime: RuntimeContext) {
+  await disposeRuntimePlugins(runtime)
 }
 
 export async function runPrompt(options: {

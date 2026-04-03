@@ -9,6 +9,7 @@
 - `src/core/agent/registry.ts`
 - `src/core/agent/agents.ts`
 - `src/core/agent/prompts.ts`
+- `src/core/skill/registry.ts`
 - `src/core/tool/registry.ts`
 - `src/core/tool/tools.ts`
 - `src/core/tool/basic.ts`
@@ -55,6 +56,7 @@ registry 维护全局 agent 定义，用于：
 - `bash`
 - `read`
 - `grep`
+- `skill`
 
 `src/core/tool/registry.ts` 定义 tool registry 工厂；实际 registry 实例由 `RuntimeContext.tool_registry` 持有，并根据 agent 的 `tools` 开关筛选当前 step 可用工具。
 
@@ -125,6 +127,9 @@ tool metadata key 约定优先使用 `camelCase`，例如：
 - `basic.ts`
   - `read`: 读取工作区内 UTF-8 文本文件
   - `grep`: 在 `src/` 下的 TypeScript 文件中执行正则搜索
+- `skill.ts`
+  - `skill`: 按需加载 runtime 已注册的 specialized skill 内容
+  - skill 正文不会预先全部塞进 system prompt；system prompt 只暴露可用 skill 列表，真正需要时再通过 tool 注入 `<skill_content ...>`
 - `bash.ts`
   - 在本地工作区执行 shell 命令
   - 支持 workdir、timeout、abort、元数据回写
@@ -147,6 +152,7 @@ tool metadata key 约定优先使用 `camelCase`，例如：
 ## 设计重点
 
 - agent/tool registry 属于运行时依赖，应由入口层从 `RuntimeContext` 装配，再通过 `RuntimeDeps` / `ToolContext` 往执行链传递，而不是依赖模块级全局表。
+- skill registry 与 agent/tool registry 一样属于运行时依赖，挂在 `RuntimeContext.skill_registry`，由 app/plugin 通过 `RuntimePlugin.skills` 静态声明具体 skill 内容。
 - 当前 subagent 委派采用平铺式可见模型：所有 `mode: "subagent"` 的 agents 都可作为 delegation 目标；可委派范围的过滤在 `task` 工具层完成，而不是在 registry 层增加专用 API。
 - tool 执行链优先通过 `ToolContext` / `RuntimeDeps` 显式拿到 `agent_registry`、`tool_registry`、`session_store`。
 - tool 的 schema、描述、执行逻辑尽量放在一起。

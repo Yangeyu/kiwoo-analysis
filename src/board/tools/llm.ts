@@ -51,6 +51,7 @@ export async function runBoardLLMTask(input: {
     agent,
     system: buildSystemPrompt({
       agent,
+      skills: [],
       step: 1,
       maxSteps: 1,
     }),

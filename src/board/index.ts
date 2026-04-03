@@ -10,9 +10,9 @@ import {
   BoardWebAnalyzeTool,
   BoardWriteTool,
 } from "@/board/tools"
-import type { RuntimeModule } from "@/core/types"
+import type { RuntimePlugin } from "@/core/plugin/types"
 
-export const boardModule: RuntimeModule = {
+export const boardPlugin: RuntimePlugin = {
   name: "board",
   agents: boardAgents,
   tools: [
@@ -27,3 +27,5 @@ export const boardModule: RuntimeModule = {
     BoardWriteTool,
   ],
 }
+
+export const boardModule = boardPlugin

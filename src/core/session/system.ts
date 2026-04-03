@@ -1,4 +1,5 @@
 import type { AgentInfo, UserMessage } from "@/core/types"
+import type { SkillInfo } from "@/core/skill/types"
 
 const BASE_SYSTEM_PROMPT = [
   "You are OpenCode, a general-purpose assistant.",
@@ -22,11 +23,21 @@ const STRUCTURED_OUTPUT_SYSTEM_PROMPT = [
 export function buildSystemPrompt(input: {
   agent: AgentInfo
   format?: UserMessage["format"]
+  skills: SkillInfo[]
   step: number
   maxSteps: number
 }) {
   const prompts = [BASE_SYSTEM_PROMPT, input.agent.prompt].filter((value): value is string => Boolean(value))
   prompts.push(TOOL_USE_SYSTEM_PROMPT)
+
+  if (input.skills.length > 0) {
+    prompts.push([
+      "Use the skill tool when the task matches one of these specialized workflows.",
+      "<available_skills>",
+      ...input.skills.map((skill) => `- ${skill.name}: ${skill.description}`),
+      "</available_skills>",
+    ].join("\n"))
+  }
 
   if (input.step >= input.maxSteps) {
     prompts.push(

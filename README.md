@@ -86,7 +86,9 @@ You can also open the TUI and immediately submit a prompt:
 bun run tui "read src/core/session/prompt.ts and explain the loop"
 ```
 
-Available built-in tools now include `read`, `grep`, `bash`, `batch`, and `task`.
+Available built-in tools now include `read`, `grep`, `bash`, `batch`, `task`, and `skill`.
+
+The runtime now also supports app-registered skills: the system prompt exposes the available skill list, and the model can call the `skill` tool to load a specialized workflow on demand instead of carrying every long instruction in the base prompt.
 
 There is also a minimal board report flow backed by PostgreSQL:
 

@@ -1,4 +1,5 @@
-import { createTestRuntime, runPrompt } from "../src/core/runtime/bootstrap"
+import { createAppTestRuntime } from "../src/app/runtime"
+import { runPrompt } from "../src/core/runtime/bootstrap"
 import { SessionCompaction } from "../src/core/session/compaction"
 import type { RuntimeEvent } from "../src/core/runtime/events"
 import type { TaskArgs, TaskResumeArgs } from "../src/core/tool/task"
@@ -8,9 +9,10 @@ import assert from "node:assert/strict"
 process.env.LLM_MODE = "fake"
 process.env.SESSION_STORE = "memory"
 
-const runtime = createTestRuntime()
+const runtime = await createAppTestRuntime()
 
 await runInvalidArgsCase()
+await runSkillCase()
 await runTaskCase()
 await runTaskResumeCase()
 await runNestedBatchCase()
@@ -35,6 +37,33 @@ async function runInvalidArgsCase() {
   assert.equal(errorPart.state.error.code, "tool_invalid_args")
   assert.equal(errorPart.toolName, "grep")
   assert.ok(errorPart.toolCallId)
+}
+
+async function runSkillCase() {
+  const parent = runtime.session_store.create({ title: "Skill smoke" })
+  const tool = runtime.tool_registry.getTyped<{ name: string }>("skill")
+
+  const result = await tool.execute({
+    name: "repo-map",
+  }, {
+    config: runtime.config,
+    agent_registry: runtime.agent_registry,
+    skill_registry: runtime.skill_registry,
+    session_store: runtime.session_store,
+    tool_registry: runtime.tool_registry,
+    events: runtime.events,
+    sessionID: parent.id,
+    messageID: createID(),
+    agent: "build",
+    abort: new AbortController().signal,
+    messages: [],
+    metadata: async () => {},
+    captureStructuredOutput: async () => {},
+    captureArtifact: async () => {},
+  })
+
+  assert.match(result.output, /<skill_content name="repo-map">/)
+  assert.match(result.output, /# Skill: repo-map/)
 }
 
 async function runTaskCase() {
@@ -71,6 +100,7 @@ async function runTaskResumeCase() {
   }, {
     config: runtime.config,
     agent_registry: runtime.agent_registry,
+    skill_registry: runtime.skill_registry,
     session_store: runtime.session_store,
     tool_registry: runtime.tool_registry,
     events: runtime.events,
@@ -105,7 +135,7 @@ async function runNestedBatchCase() {
 }
 
 async function runTraceExportCase() {
-  const tracedRuntime = createTestRuntime()
+  const tracedRuntime = await createAppTestRuntime()
   const session = await runPrompt({
     runtime: tracedRuntime,
     text: "Run nested batch smoke for tool harness",
@@ -129,7 +159,7 @@ async function runTraceExportCase() {
 }
 
 async function runReplayCase() {
-  const replayRuntime = createTestRuntime()
+  const replayRuntime = await createAppTestRuntime()
   const session = await runPrompt({
     runtime: replayRuntime,
     text: "Run nested batch smoke for tool harness",
@@ -184,7 +214,7 @@ async function runCliDebugCase() {
 }
 
 async function runSessionBudgetCase() {
-  const budgetRuntime = createTestRuntime({
+  const budgetRuntime = await createAppTestRuntime({
     config: {
       session_max_steps: 1,
     },
@@ -244,7 +274,7 @@ async function runSessionBudgetCase() {
 }
 
 async function runSubagentDepthBudgetCase() {
-  const depthRuntime = createTestRuntime({
+  const depthRuntime = await createAppTestRuntime({
     config: {
       subagent_max_depth: 0,
     },
@@ -260,6 +290,7 @@ async function runSubagentDepthBudgetCase() {
   }, {
     config: depthRuntime.config,
     agent_registry: depthRuntime.agent_registry,
+    skill_registry: depthRuntime.skill_registry,
     session_store: depthRuntime.session_store,
     tool_registry: depthRuntime.tool_registry,
     events: depthRuntime.events,
