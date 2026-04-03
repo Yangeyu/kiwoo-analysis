@@ -1,14 +1,10 @@
 import { boardAgents } from "@/board/agents"
 import {
+  BoardAnalysisAssetReadTool,
+  BoardAnalysisAssetUpsertTool,
   BoardAnalysisBundleReadTool,
   BoardAnalysisContextTool,
-  BoardChartAnalyzeTool,
-  BoardReportAnalyzeTool,
-  BoardSectionAnalyzeTool,
   BoardSnapshotTool,
-  BoardTextAnalyzeTool,
-  BoardWebAnalyzeTool,
-  BoardWriteTool,
 } from "@/board/tools"
 import type { RuntimePlugin } from "@/core/plugin/types"
 
@@ -19,12 +15,8 @@ export const boardPlugin: RuntimePlugin = {
     BoardSnapshotTool,
     BoardAnalysisContextTool,
     BoardAnalysisBundleReadTool,
-    BoardSectionAnalyzeTool,
-    BoardTextAnalyzeTool,
-    BoardReportAnalyzeTool,
-    BoardWebAnalyzeTool,
-    BoardChartAnalyzeTool,
-    BoardWriteTool,
+    BoardAnalysisAssetUpsertTool,
+    BoardAnalysisAssetReadTool,
   ],
 }
 

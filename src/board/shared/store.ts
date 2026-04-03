@@ -1,10 +1,16 @@
-import type { BoardAnalysisBundleType, BoardAnalysisContext, BoardAnalysisDatasetSummary } from "@/board/types"
+import type {
+  BoardAnalysisAsset,
+  BoardAnalysisBundleType,
+  BoardAnalysisContext,
+  BoardAnalysisDatasetSummary,
+} from "@/board/types"
 import type { ISessionStore } from "@/core/session/store/types"
 import { createID } from "@/core/types"
 
 type StoredBoardAnalysisDataset = {
   id: string
   context: BoardAnalysisContext
+  assets: BoardAnalysisAsset[]
   sessionId: string
   createdAt: string
 }
@@ -19,6 +25,7 @@ export function createBoardAnalysisDataset(input: {
   const dataset: StoredBoardAnalysisDataset = {
     id: createID(),
     context: input.context,
+    assets: [],
     sessionId: input.sessionId,
     createdAt: new Date().toISOString(),
   }
@@ -45,6 +52,15 @@ export function summarizeBoardAnalysisDataset(dataset: StoredBoardAnalysisDatase
     overview: dataset.context.overview,
     boardAggregates: dataset.context.boardAggregates,
     boardCleaningLogs: dataset.context.boardCleaningLogs,
+    assets: {
+      count: dataset.assets.length,
+      items: dataset.assets.map((asset) => ({
+        name: asset.name,
+        focus: asset.focus,
+        sourceBundleTypes: asset.sourceBundleTypes,
+        updatedAt: asset.updatedAt,
+      })),
+    },
     bundles: [
       describeBundle(dataset.context, "section_bundle", "Section-grouped nodes and section structure evidence"),
       describeBundle(dataset.context, "text_bundle", "Notes and ai_note content for claim and contradiction analysis"),
@@ -72,6 +88,63 @@ export function readBoardAnalysisBundle(input: {
     analysisScope: dataset.context.analysisScope,
     overview: dataset.context.overview,
     bundle: dataset.context.researchBundles[input.bundleType],
+  }
+}
+
+export function upsertBoardAnalysisAsset(input: {
+  store: ISessionStore
+  analysisId: string
+  name: string
+  content: string
+  focus?: string
+  sourceBundleTypes: BoardAnalysisBundleType[]
+}) {
+  const dataset = getBoardAnalysisDataset({
+    store: input.store,
+    analysisId: input.analysisId,
+  })
+  const now = new Date().toISOString()
+  const existing = dataset.assets.find((asset) => asset.name === input.name)
+
+  if (existing) {
+    existing.content = input.content
+    existing.focus = input.focus
+    existing.sourceBundleTypes = input.sourceBundleTypes
+    existing.updatedAt = now
+    return existing
+  }
+
+  const asset: BoardAnalysisAsset = {
+    name: input.name,
+    content: input.content,
+    focus: input.focus,
+    sourceBundleTypes: input.sourceBundleTypes,
+    createdAt: now,
+    updatedAt: now,
+  }
+
+  dataset.assets.push(asset)
+  return asset
+}
+
+export function readBoardAnalysisAssets(input: {
+  store: ISessionStore
+  analysisId: string
+  names?: string[]
+}) {
+  const dataset = getBoardAnalysisDataset({
+    store: input.store,
+    analysisId: input.analysisId,
+  })
+  const wanted = input.names ? new Set(input.names) : undefined
+  const assets = wanted
+    ? dataset.assets.filter((asset) => wanted.has(asset.name))
+    : dataset.assets
+
+  return {
+    analysisId: dataset.id,
+    summary: summarizeBoardAnalysisDataset(dataset),
+    assets,
   }
 }
 

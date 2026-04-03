@@ -164,9 +164,27 @@ export type BoardAnalysisDatasetSummary = {
   overview: BoardAnalysisContext["overview"]
   boardAggregates: BoardAnalysisContext["boardAggregates"]
   boardCleaningLogs: BoardAnalysisContext["boardCleaningLogs"]
+   assets: {
+    count: number
+    items: Array<{
+      name: string
+      focus?: string
+      sourceBundleTypes: BoardAnalysisBundleType[]
+      updatedAt: string
+    }>
+  }
   bundles: Array<{
     type: BoardAnalysisBundleType
     itemCount: number
     description: string
   }>
+}
+
+export type BoardAnalysisAsset = {
+  name: string
+  content: string
+  focus?: string
+  sourceBundleTypes: BoardAnalysisBundleType[]
+  createdAt: string
+  updatedAt: string
 }
