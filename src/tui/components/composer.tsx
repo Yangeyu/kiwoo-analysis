@@ -7,9 +7,7 @@ import type { TextareaRenderable } from "@opentui/core"
 import { useRenderer, useTerminalDimensions } from "@opentui/solid"
 import { Show, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js"
 
-const COMPOSER_RESERVED_INPUT_HEIGHT = PROMPT_MAX_HEIGHT + 4
 const COMPOSER_FOOTER_HEIGHT = 2
-const COMPOSER_TOTAL_HEIGHT = COMPOSER_RESERVED_INPUT_HEIGHT + COMPOSER_FOOTER_HEIGHT
 
 function clampInputHeight(lines: number) {
   return Math.max(1, Math.min(PROMPT_MAX_HEIGHT, lines))
@@ -47,6 +45,9 @@ export function ComposerCard(props: {
     if (typeof measured === "number" && measured > 0) return Math.max(1, measured)
     return Math.max(24, term().width - 44)
   }
+
+  const composerBodyHeight = () => inputHeight() + 4
+  const composerTotalHeight = () => composerBodyHeight() + COMPOSER_FOOTER_HEIGHT
 
   const syncInputHeight = (nextValue = value()) => {
     setInputHeight(calculateInputHeight(nextValue, inputWrapWidth(), textareaRef?.virtualLineCount))
@@ -175,8 +176,8 @@ export function ComposerCard(props: {
   })
 
   return (
-    <box height={COMPOSER_TOTAL_HEIGHT} flexDirection="column">
-      <box height={COMPOSER_RESERVED_INPUT_HEIGHT} flexDirection="column" justifyContent="flex-end" flexShrink={0}>
+    <box height={composerTotalHeight()} flexDirection="column">
+      <box height={composerBodyHeight()} flexDirection="column" flexShrink={0}>
         <box flexDirection="column">
           <box
             paddingLeft={2}
