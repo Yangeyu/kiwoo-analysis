@@ -10,7 +10,7 @@ export const BoardAnalysisBundleReadParameters = z.object({
 
 export const BoardAnalysisBundleReadTool = defineTool({
   id: "board_analysis_bundle_read",
-  description: "Read one stored board analysis bundle by analysisId and bundleType.",
+  description: "Read one stored board analysis bundle by analysisId and bundleType, returning only bundle-focused data.",
   parameters: BoardAnalysisBundleReadParameters,
   beforeExecute({ args }) {
     return {

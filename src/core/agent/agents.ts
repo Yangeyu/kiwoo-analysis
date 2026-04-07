@@ -15,7 +15,7 @@ export const coreAgents: AgentInfo[] = [
       bash: true,
       skill: true,
     },
-    steps: 8,
+    steps: 12,
   },
   {
     name: "general",

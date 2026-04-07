@@ -1,6 +1,10 @@
 import { buildBoardAnalysisContext } from "@/board/shared/analyze"
 import { loadBoardSnapshots } from "@/board/shared/snapshot"
-import { createBoardAnalysisDataset, summarizeBoardAnalysisDataset } from "@/board/shared/store"
+import {
+  createBoardAnalysisDataset,
+  getBoardAnalysisDatasetJsonPath,
+  summarizeBoardAnalysisDataset,
+} from "@/board/shared/store"
 import { defineTool } from "@/core/tool/tool"
 import { z } from "zod"
 
@@ -51,12 +55,14 @@ export const BoardAnalysisContextTool = defineTool({
       context: analysis,
     })
     const summary = summarizeBoardAnalysisDataset(dataset)
+    const datasetPath = getBoardAnalysisDatasetJsonPath(summary.analysisId)
 
     return {
       title: `Board analysis context: ${boards.length} board(s)`,
       output: JSON.stringify(summary, null, 2),
       metadata: {
         analysisId: summary.analysisId,
+        datasetPath,
         boardIds: args.boardIds,
         boardCount: summary.overview.boardCount,
         sectionCount: summary.overview.sectionCount,

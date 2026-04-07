@@ -1,3 +1,5 @@
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
+import { join, relative, resolve } from "node:path"
 import type {
   BoardAnalysisAsset,
   BoardAnalysisBundleType,
@@ -7,6 +9,8 @@ import type {
 import type { ISessionStore } from "@/core/session/store/types"
 import { createID } from "@/core/types"
 
+const BOARD_ANALYSIS_STORE_DIR = resolve(process.cwd(), "data", "board-analysis-store")
+
 type StoredBoardAnalysisDataset = {
   id: string
   context: BoardAnalysisContext
@@ -15,7 +19,7 @@ type StoredBoardAnalysisDataset = {
   createdAt: string
 }
 
-const datasetStore = new WeakMap<ISessionStore, Map<string, StoredBoardAnalysisDataset>>()
+const datasetCache = new Map<string, StoredBoardAnalysisDataset>()
 
 export function createBoardAnalysisDataset(input: {
   store: ISessionStore
@@ -30,7 +34,7 @@ export function createBoardAnalysisDataset(input: {
     createdAt: new Date().toISOString(),
   }
 
-  datasetsFor(input.store).set(dataset.id, dataset)
+  saveBoardAnalysisDataset(dataset)
   return dataset
 }
 
@@ -38,7 +42,7 @@ export function getBoardAnalysisDataset(input: {
   store: ISessionStore
   analysisId: string
 }) {
-  const dataset = datasetsFor(input.store).get(input.analysisId)
+  const dataset = loadBoardAnalysisDataset(input.analysisId)
   if (!dataset) {
     throw new Error(`Board analysis dataset not found: ${input.analysisId}`)
   }
@@ -83,10 +87,8 @@ export function readBoardAnalysisBundle(input: {
 
   return {
     analysisId: dataset.id,
-    summary: summarizeBoardAnalysisDataset(dataset),
     bundleType: input.bundleType,
-    analysisScope: dataset.context.analysisScope,
-    overview: dataset.context.overview,
+    itemCount: dataset.context.researchBundles[input.bundleType].length,
     bundle: dataset.context.researchBundles[input.bundleType],
   }
 }
@@ -111,6 +113,7 @@ export function upsertBoardAnalysisAsset(input: {
     existing.focus = input.focus
     existing.sourceBundleTypes = input.sourceBundleTypes
     existing.updatedAt = now
+    saveBoardAnalysisDataset(dataset)
     return existing
   }
 
@@ -124,7 +127,12 @@ export function upsertBoardAnalysisAsset(input: {
   }
 
   dataset.assets.push(asset)
+  saveBoardAnalysisDataset(dataset)
   return asset
+}
+
+export function getBoardAnalysisDatasetJsonPath(analysisId: string) {
+  return relative(process.cwd(), boardAnalysisDatasetFilePath(analysisId))
 }
 
 export function readBoardAnalysisAssets(input: {
@@ -148,14 +156,6 @@ export function readBoardAnalysisAssets(input: {
   }
 }
 
-function datasetsFor(store: ISessionStore) {
-  const existing = datasetStore.get(store)
-  if (existing) return existing
-  const created = new Map<string, StoredBoardAnalysisDataset>()
-  datasetStore.set(store, created)
-  return created
-}
-
 function describeBundle(
   context: BoardAnalysisContext,
   type: BoardAnalysisBundleType,
@@ -166,4 +166,41 @@ function describeBundle(
     itemCount: context.researchBundles[type].length,
     description,
   }
+}
+
+function sanitizePathSegment(value: string) {
+  const normalized = value
+    .trim()
+    .replace(/[^a-zA-Z0-9._-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^[-.]+|[-.]+$/g, "")
+
+  return normalized || "asset"
+}
+
+function loadBoardAnalysisDataset(analysisId: string) {
+  const cached = datasetCache.get(analysisId)
+  if (cached) return cached
+
+  const filePath = boardAnalysisDatasetFilePath(analysisId)
+  if (!existsSync(filePath)) return null
+
+  try {
+    const dataset = JSON.parse(readFileSync(filePath, "utf8")) as StoredBoardAnalysisDataset
+    datasetCache.set(dataset.id, dataset)
+    return dataset
+  } catch {
+    return null
+  }
+}
+
+function saveBoardAnalysisDataset(dataset: StoredBoardAnalysisDataset) {
+  mkdirSync(BOARD_ANALYSIS_STORE_DIR, { recursive: true })
+  const filePath = boardAnalysisDatasetFilePath(dataset.id)
+  writeFileSync(filePath, JSON.stringify(dataset, null, 2), "utf8")
+  datasetCache.set(dataset.id, dataset)
+}
+
+function boardAnalysisDatasetFilePath(analysisId: string) {
+  return join(BOARD_ANALYSIS_STORE_DIR, `${sanitizePathSegment(analysisId)}.json`)
 }
