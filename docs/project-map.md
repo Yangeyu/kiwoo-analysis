@@ -15,6 +15,8 @@
 ```text
 src/
 ├── index.ts                     # CLI 入口
+├── server.ts                    # SSE HTTP 启动入口
+├── http/                        # HTTP/SSE 模块与在线文档
 ├── tui/
 │   └── app.tsx                 # 交互式终端 UI
 ├── core/
@@ -35,7 +37,7 @@ src/
 
 ## 主执行链路
 
-1. `src/index.ts` 解析命令行参数，选择 CLI 或 TUI。
+1. `src/index.ts` 解析命令行参数，选择 CLI 或 TUI；`src/server.ts` 启动 `src/http/` 模块提供的 SSE HTTP 边界。
 2. `src/core/runtime/context.ts` 通过 `src/core/config.ts` 解析配置，创建新的 runtime 实例及其 `session_store`、agent/tool/skill registry、event bus。
 3. `src/core/runtime/bootstrap.ts` 装配 runtime plugins，注册 agents、tools、skills，并执行最小生命周期。
 4. `src/core/session/prompt.ts` 创建 user message，进入外层 loop。

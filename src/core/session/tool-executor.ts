@@ -30,7 +30,9 @@ export class ToolCallExecutor {
       type: "tool-call",
       sessionID: this.context.session.id,
       agent: this.context.agent.name,
+      messageID: this.context.assistant.id,
       tool: chunk.toolName,
+      toolCallId: chunk.toolCallId,
       args: chunk.args,
     })
 
@@ -38,7 +40,9 @@ export class ToolCallExecutor {
       type: "tool-start",
       sessionID: this.context.session.id,
       agent: this.context.agent.name,
+      messageID: this.context.assistant.id,
       tool: chunk.toolName,
+      toolCallId: chunk.toolCallId,
     })
 
     this.context.reasoningPart = undefined
@@ -137,8 +141,13 @@ export class ToolCallExecutor {
         type: "tool-result",
         sessionID: this.context.session.id,
         agent: this.context.agent.name,
+        messageID: this.context.assistant.id,
         tool: chunk.toolName,
+        toolCallId: chunk.toolCallId,
         output: toolResult.output,
+        title: toolResult.title,
+        metadata: toolResult.metadata,
+        attachments: toolResult.attachments,
       })
 
       this.context.recentToolFailures = []
@@ -154,8 +163,15 @@ export class ToolCallExecutor {
           type: "tool-error",
           sessionID: this.context.session.id,
           agent: this.context.agent.name,
+          messageID: this.context.assistant.id,
           tool: chunk.toolName,
+          toolCallId: chunk.toolCallId,
           error: "Aborted",
+          errorInfo: {
+            message: "Aborted",
+            retryable: false,
+            code: "aborted",
+          },
         })
         this.lifecycle.abort()
         return { kind: "stop" }
@@ -208,8 +224,11 @@ export class ToolCallExecutor {
       type: "tool-error",
       sessionID: this.context.session.id,
       agent: this.context.agent.name,
+      messageID: this.context.assistant.id,
       tool: part.toolName,
+      toolCallId: part.toolCallId,
       error: error.message,
+      errorInfo: error,
     })
   }
 
@@ -271,6 +290,17 @@ export class ToolCallExecutor {
             metadata: metadataUpdate.metadata,
           }),
         )
+
+        context.events.emit({
+          type: "tool-metadata",
+          sessionID: context.session.id,
+          agent: context.agent.name,
+          messageID: context.assistant.id,
+          tool: latest.toolName,
+          toolCallId: latest.toolCallId,
+          title: metadataUpdate.title,
+          metadata: metadataUpdate.metadata,
+        })
       },
       executeTool: async (input: { toolName: string; args: unknown; toolCallId?: string }) => {
         const outcome = await this.executeCall({

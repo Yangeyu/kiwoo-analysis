@@ -25,6 +25,8 @@ This project extracts a compact core of the `opencode` runtime shape, focused on
 - `src/core/tool/bash.ts`: local shell command execution tool
 - `src/core/session/compaction.ts`: compact old context into a summary message
 - `src/index.ts`: CLI bootstrap and mode selection
+- `src/server.ts`: Bun SSE server for frontend streaming clients
+- `src/http/`: HTTP/SSE module for routes, streaming, and OpenAPI docs
 - `src/tui/app.tsx`: componentized OpenTUI/Solid terminal UI
 - `bunfig.toml`: bun preload for OpenTUI Solid JSX transforms
 
@@ -45,8 +47,47 @@ bun run start "read src/session/prompt.ts and explain the loop"
 The project is now bun-first for local development:
 
 - `bun run start` runs the TypeScript CLI entrypoint directly
+- `bun run sse` starts a minimal SSE HTTP server on port `4444`
 - `bun run tui` opens the interactive TUI directly
 - `bun run build` bundles the CLI with Bun.build into `dist/`
+
+SSE server example:
+
+```bash
+bun run sse
+curl -N -X POST http://localhost:4444/api/chat \
+  -H 'content-type: application/json' \
+  -d '{"text":"read src/core/session/prompt.ts and explain the loop"}'
+```
+
+If port `4444` is occupied, the server now automatically tries the next ports. You can also pin a port explicitly:
+
+```bash
+bun run sse --port 3100
+PORT=3100 bun run sse
+```
+
+The SSE endpoint emits frontend-friendly events modeled after the Vercel SDK stream shape:
+
+- `session-metadata`
+- `message-metadata`
+- `text-start`
+- `text-delta`
+- `reasoning-delta`
+- `tool-call`
+- `tool-result`
+- `finish`
+- `error`
+- `done`
+
+Online API docs are also available:
+
+```bash
+http://localhost:4444/openapi.json
+http://localhost:4444/docs
+```
+
+`/docs` uses Scalar to render the live OpenAPI document exposed by `/openapi.json`.
 
 Useful flags:
 

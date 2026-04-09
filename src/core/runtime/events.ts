@@ -1,4 +1,4 @@
-import type { TurnOutcomeReason, TurnPhase } from "@/core/types"
+import type { ErrorInfo, ToolAttachment, ToolMetadata, TurnOutcomeReason, TurnPhase } from "@/core/types"
 
 type RuntimeEvent =
   | { type: "session-start"; sessionID: string; agent: string; text: string }
@@ -41,15 +41,45 @@ type RuntimeEvent =
       messageID: string
       phase: TurnPhase
     }
-  | { type: "reasoning"; sessionID: string; agent: string; textDelta: string }
-  | { type: "text"; sessionID: string; agent: string; textDelta: string }
-  | { type: "tool-call"; sessionID: string; agent: string; tool: string; args: unknown }
-  | { type: "tool-start"; sessionID: string; agent: string; tool: string }
-  | { type: "tool-result"; sessionID: string; agent: string; tool: string; output: string }
-  | { type: "tool-error"; sessionID: string; agent: string; tool: string; error: string }
-  | { type: "structured-output"; sessionID: string; agent: string; output: unknown }
+  | { type: "reasoning"; sessionID: string; agent: string; messageID: string; textDelta: string }
+  | { type: "text"; sessionID: string; agent: string; messageID: string; textDelta: string }
+  | { type: "tool-call"; sessionID: string; agent: string; messageID: string; tool: string; toolCallId: string; args: unknown }
+  | { type: "tool-start"; sessionID: string; agent: string; messageID: string; tool: string; toolCallId: string }
+  | {
+      type: "tool-metadata"
+      sessionID: string
+      agent: string
+      messageID: string
+      tool: string
+      toolCallId: string
+      title?: string
+      metadata?: ToolMetadata
+    }
+  | {
+      type: "tool-result"
+      sessionID: string
+      agent: string
+      messageID: string
+      tool: string
+      toolCallId: string
+      output: string
+      title?: string
+      metadata?: ToolMetadata
+      attachments?: ToolAttachment[]
+    }
+  | {
+      type: "tool-error"
+      sessionID: string
+      agent: string
+      messageID: string
+      tool: string
+      toolCallId: string
+      error: string
+      errorInfo?: ErrorInfo
+    }
+  | { type: "structured-output"; sessionID: string; agent: string; messageID: string; output: unknown }
   | { type: "compaction"; sessionID: string; summary: string }
-  | { type: "finish"; sessionID: string; agent: string; finishReason: string }
+  | { type: "finish"; sessionID: string; agent: string; messageID: string; finishReason: string }
   | {
       type: "turn-outcome"
       sessionID: string
@@ -69,7 +99,7 @@ type RuntimeEvent =
       toolCalls: number
     }
   | { type: "turn-abort"; sessionID: string; agent: string; messageID: string; durationMs: number }
-  | { type: "error"; sessionID: string; agent: string; error: string }
+  | { type: "error"; sessionID: string; agent: string; messageID: string; error: string }
 
 type Listener = (event: RuntimeEvent) => void
 

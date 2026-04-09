@@ -66,6 +66,7 @@ export class TurnLifecycle {
       type: "reasoning",
       sessionID: this.context.session.id,
       agent: this.context.agent.name,
+      messageID: this.context.assistant.id,
       textDelta,
     })
 
@@ -99,6 +100,7 @@ export class TurnLifecycle {
       type: "text",
       sessionID: this.context.session.id,
       agent: this.context.agent.name,
+      messageID: this.context.assistant.id,
       textDelta,
     })
 
@@ -137,6 +139,7 @@ export class TurnLifecycle {
       type: "finish",
       sessionID: this.context.session.id,
       agent: this.context.agent.name,
+      messageID: this.context.assistant.id,
       finishReason: finishReason ?? "stop",
     })
 
@@ -158,6 +161,7 @@ export class TurnLifecycle {
       type: "error",
       sessionID: this.context.session.id,
       agent: this.context.agent.name,
+      messageID: this.context.assistant.id,
       error: error.message,
     })
 
@@ -193,6 +197,7 @@ export class TurnLifecycle {
       type: "structured-output",
       sessionID: this.context.session.id,
       agent: this.context.agent.name,
+      messageID: this.context.assistant.id,
       output,
     })
 

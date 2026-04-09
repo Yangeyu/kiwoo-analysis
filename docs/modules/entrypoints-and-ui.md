@@ -2,11 +2,13 @@
 
 ## 模块职责
 
-这一层负责把用户输入接入 runtime，并把运行中的事件渲染成 CLI 或 TUI 体验。
+这一层负责把用户输入接入 runtime，并把运行中的事件渲染成 CLI、TUI 或 SSE 体验。
 
 ## 相关文件
 
 - `src/index.ts`
+- `src/server.ts`
+- `src/http/`
 - `src/tui/app.tsx`
 - `src/tui/components/`
 - `src/tui/trace.ts`
@@ -34,6 +36,21 @@
 - replay 依赖当前 runtime 内存里的 trace，因此不能只靠磁盘 session 文件离线恢复旧 trace。
 - `--trace` / `--replay-*` 仅支持 CLI 模式，不支持 `--tui`。
 
+## SSE 入口
+
+`src/server.ts` 负责：
+
+- 作为轻量启动入口，启动 `src/http/` 模块里的 HTTP 服务。
+
+`src/http/` 负责：
+
+- 用 `Bun.serve()` 暴露最小 HTTP 服务。
+- 提供 `POST /api/chat` SSE 接口，接收 `text`、可选 `agent`、可选 `sessionID`。
+- 为每个请求订阅 runtime events，并把内部事件映射为前端友好的 SSE 帧。
+- 当前事件格式对齐前端常见流式消费模式：`text-start`、`text-delta`、`reasoning-delta`、`tool-call`、`tool-result`、`finish`、`error`。
+- 保留 runtime 内部的 session tree 语义；root session 下的子 agent 事件也会继续透传到同一 SSE 流。
+- 管理 `/openapi.json` 与 `/docs`，提供在线接口文档预览。
+
 ## TUI 结构
 
 `src/tui/` 基于 `@opentui/solid` 实现，当前拆分为：
@@ -59,7 +76,7 @@
 - session-start
 - turn-start / turn-phase / turn-complete
 - reasoning / text
-- tool-call / tool-start / tool-result / tool-error
+- tool-call / tool-start / tool-metadata / tool-result / tool-error
 - structured-output / compaction / error
 
 ## CLI 输出模式
