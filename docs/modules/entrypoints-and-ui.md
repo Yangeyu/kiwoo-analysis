@@ -9,6 +9,7 @@
 - `src/index.ts`
 - `src/server.ts`
 - `src/http/`
+- `frontend/`
 - `src/tui/app.tsx`
 - `src/tui/components/`
 - `src/tui/trace.ts`
@@ -35,6 +36,7 @@
 - `--replay-step <n>` 或 `--replay-message <id>` 打印对应 turn 的 replay 输入快照。
 - replay 依赖当前 runtime 内存里的 trace，因此不能只靠磁盘 session 文件离线恢复旧 trace。
 - `--trace` / `--replay-*` 仅支持 CLI 模式，不支持 `--tui`。
+- 根脚本 `bun run dev` 会先选一个固定可用后端端口，再用 `bun --watch src/server.ts` 启动后端，并把同一个地址注入 `frontend/` 开发服务器。
 
 ## SSE 入口
 
@@ -50,6 +52,13 @@
 - 当前事件格式对齐前端常见流式消费模式：`text-start`、`text-delta`、`reasoning-delta`、`tool-call`、`tool-result`、`finish`、`error`。
 - 保留 runtime 内部的 session tree 语义；root session 下的子 agent 事件也会继续透传到同一 SSE 流。
 - 管理 `/openapi.json` 与 `/docs`，提供在线接口文档预览。
+
+`frontend/` 负责：
+
+- 提供一个独立最小 React 聊天页面项目。
+- 通过浏览器端 `fetch` + SSE 解析消费 `POST /api/chat`。
+- 按 `messageID` 归并 `reasoning-delta`、`text-delta`、`tool-call`、`tool-result`，展示 CoT 和消息正文。
+- 默认开发地址为 `http://localhost:5173`，默认后端地址为 `http://localhost:4444`，可通过 `VITE_API_BASE_URL` 覆盖。
 
 ## TUI 结构
 

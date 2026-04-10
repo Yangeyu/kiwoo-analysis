@@ -145,6 +145,47 @@ export function createOpenAPIDocument(input: { baseUrl: string }) {
           ].join("\n"),
         },
       },
+      "/api/files/content": {
+        get: {
+          summary: "Read a workspace file as text",
+          operationId: "getFileContent",
+          parameters: [
+            {
+              name: "path",
+              in: "query",
+              required: true,
+              schema: {
+                type: "string",
+              },
+              description: "Absolute or workspace-relative file path.",
+            },
+          ],
+          responses: {
+            "200": {
+              description: "Text file content",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      path: { type: "string" },
+                      filename: { type: "string" },
+                      content: { type: "string" },
+                    },
+                    required: ["path", "filename", "content"],
+                  },
+                },
+              },
+            },
+            "400": {
+              description: "Invalid file path",
+            },
+            "404": {
+              description: "File not found",
+            },
+          },
+        },
+      },
       "/openapi.json": {
         get: {
           summary: "OpenAPI document",
