@@ -8,7 +8,7 @@ Use this skill when the user asks for board analysis, board reporting, thesis-st
 - Keep board data loading, cleaning, and aggregation inside `board_analysis_prepare`.
 - Keep bundle-level analysis isolated inside `board_bundle_analyze` subagents.
 - Store reusable analysis assets in the board dataset.
-- Use `board_write` to produce the final report.
+- Use `board_write` to write the final report under the current project data directory.
 
 ## Workflow
 
@@ -16,7 +16,7 @@ Use this skill when the user asks for board analysis, board reporting, thesis-st
 2. Read the returned summary and bundle catalog. Select only the bundle types needed for the objective.
 3. For each selected bundle, delegate to `board_bundle_analyze` with `task`. If multiple bundles are independent, use `batch` to launch the `task` calls in parallel.
 4. After all required bundle tasks complete, delegate to `board_write` with `task`.
-5. Return the final report from `board_write` as the user-facing answer.
+5. Return only the saved markdown file path from `board_write` as the user-facing answer.
 
 ## Context to pass
 
@@ -54,4 +54,5 @@ When delegating `board_write`, include:
 - Do not analyze bundle bodies directly in `build`; use `board_bundle_analyze`.
 - Do not stop after assets are stored if the user wants a final report.
 - Keep intermediate asset bodies out of the main conversation whenever possible.
+- Keep the final report body out of the main conversation; `board_write` should save it under the current project data directory and return only the file path.
 - Use `board_snapshot` only inside board subagents when structure or board scope needs validation.

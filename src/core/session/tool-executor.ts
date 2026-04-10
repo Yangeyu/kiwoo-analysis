@@ -9,7 +9,7 @@ import { isAbortError, isDoomLoop } from "@/core/session/retry"
 import type { ProcessorContext, ToolExecutionResult } from "@/core/session/processor-context"
 import { TurnLifecycle } from "@/core/session/turn-lifecycle"
 import { toToolExecutionErrorInfo, validateToolArgs } from "@/core/tool/tool"
-import { createID, type Artifact, type ErrorInfo, type SessionHistoryMessage, type ToolContext, type ToolDefinition, type ToolPart } from "@/core/types"
+import { createID, type ErrorInfo, type SessionHistoryMessage, type ToolContext, type ToolDefinition, type ToolPart } from "@/core/types"
 
 export class ToolCallExecutor {
   constructor(private readonly context: ProcessorContext, private readonly lifecycle: TurnLifecycle) {}
@@ -327,9 +327,6 @@ export class ToolCallExecutor {
       },
       captureStructuredOutput: async (output: unknown) => {
         lifecycle.captureStructuredOutput(output)
-      },
-      captureArtifact: async (artifact: Artifact) => {
-        lifecycle.captureArtifact(artifact)
       },
     }
   }

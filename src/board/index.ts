@@ -5,6 +5,7 @@ import {
   BoardAnalysisAssetUpsertTool,
   BoardAnalysisBundleReadTool,
   BoardAnalysisContextTool,
+  BoardReportWriteTool,
   BoardSnapshotTool,
 } from "@/board/tools"
 import type { RuntimePlugin } from "@/core/plugin/types"
@@ -19,6 +20,7 @@ export const boardPlugin: RuntimePlugin = {
     BoardAnalysisBundleReadTool,
     BoardAnalysisAssetUpsertTool,
     BoardAnalysisAssetReadTool,
+    BoardReportWriteTool,
   ],
 }
 

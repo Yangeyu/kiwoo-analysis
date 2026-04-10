@@ -15,7 +15,6 @@ export type TurnOutcomeReason =
   | "empty_assistant"
   | "context_limit"
   | "structured_output"
-  | "passthrough_artifact"
   | "step_budget_reached"
   | "step_budget_reached_without_answer"
   | "assistant_error"
@@ -39,8 +38,9 @@ export type ToolMetadata = JsonObject
 
 export type ToolAttachment = {
   mime: string
-  url: string
   filename?: string
+  path?: string
+  bytes?: number
 }
 
 export type TimeInfo = {
@@ -56,20 +56,6 @@ export type OutputFormat =
       type: "json_schema"
       schema: Record<string, unknown>
     }
-
-export type DelegationIntent = "investigate" | "draft" | "deliver"
-
-export type ArtifactDeliveryMode = "summarize" | "rewrite" | "passthrough"
-
-export type ArtifactFormat = "markdown" | "text" | "json"
-
-export type Artifact = {
-  type: string
-  format: ArtifactFormat
-  title?: string
-  body: string
-  deliveryMode: ArtifactDeliveryMode
-}
 
 export type AgentInfo = {
   name: string
@@ -160,7 +146,6 @@ export type ToolContext = RuntimeDeps & {
       }
   >
   captureStructuredOutput(output: unknown): Promise<void>
-  captureArtifact(artifact: Artifact): Promise<void>
 }
 
 export type ToolDefinition<TArgs = unknown> = {
@@ -195,7 +180,6 @@ export type AssistantMessage = {
   finish?: FinishReason
   error?: ErrorInfo
   structured?: unknown
-  artifact?: Artifact
   time: TimeInfo
 }
 

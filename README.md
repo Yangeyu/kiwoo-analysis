@@ -28,6 +28,7 @@ This project extracts a compact core of the `opencode` runtime shape, focused on
 - `src/server.ts`: Bun SSE server for frontend streaming clients
 - `src/http/`: HTTP/SSE module for routes, streaming, and OpenAPI docs
 - `src/tui/app.tsx`: componentized OpenTUI/Solid terminal UI
+- `frontend/`: minimal React chat client for the SSE API
 - `bunfig.toml`: bun preload for OpenTUI Solid JSX transforms
 
 ## Import Conventions
@@ -46,10 +47,40 @@ bun run start "read src/session/prompt.ts and explain the loop"
 
 The project is now bun-first for local development:
 
+- `bun run dev` starts the SSE backend in `bun --watch` mode and starts the `frontend/` React dev server with the same resolved API base URL
 - `bun run start` runs the TypeScript CLI entrypoint directly
 - `bun run sse` starts a minimal SSE HTTP server on port `4444`
 - `bun run tui` opens the interactive TUI directly
 - `bun run build` bundles the CLI with Bun.build into `dist/`
+
+The repo also includes a standalone minimal React frontend under `frontend/`:
+
+```bash
+bun run dev
+```
+
+This gives you:
+
+- frontend HMR through Vite
+- backend auto-restart on `src/` changes through `bun --watch`
+- backend logs printed in the same terminal
+
+Or run them separately:
+
+```bash
+bun run sse
+cd frontend
+bun install
+bun run dev
+```
+
+Then open:
+
+```bash
+http://localhost:5173
+```
+
+Override the backend base URL with `VITE_API_BASE_URL` when needed.
 
 SSE server example:
 
@@ -138,6 +169,8 @@ bun run start --agent board_report --output buffered "Analyze board <board-id> a
 ```
 
 The default `build` agent routes board-report requests to the `board_report` specialist, which calls `board_snapshot`, reads from the Kiwoo business database, and emits a structured multi-chapter JSON report.
+
+For the board analysis workflow, the final `board_write` stage now saves the generated Markdown report under the current project's data directory and returns only the saved file path, instead of streaming the full report body back through the main chat transcript.
 
 Example with the simple CLI display:
 

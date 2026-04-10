@@ -108,7 +108,6 @@ function buildReplaySession(session: SessionInfo, assistantMessageID: string): S
         finish: undefined,
         error: undefined,
         structured: undefined,
-        artifact: undefined,
       }
     })
 

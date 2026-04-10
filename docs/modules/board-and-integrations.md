@@ -31,6 +31,7 @@
 - `board_analysis_bundle_read` tool
 - `board_analysis_asset_upsert` tool
 - `board_analysis_asset_read` tool
+- `board_report_write` tool
 
 这说明 board 能力不是写死在 core 中，而是通过 runtime module 注册为一个面向 `build` 的 workflow skill，加一组 board subagents 和 board 原语 tools。
 
@@ -45,8 +46,9 @@
 4. `build` 根据 skill 指南选择需要分析的 bundle，并通过 `task` 把每个 bundle 委派给 `board_bundle_analyze`。
 5. 当多个 bundle 彼此独立时，`build` 可以通过 `batch` 并行发起多个 bundle 子任务。
 6. 每个 `board_bundle_analyze` 只读取一个 bundle，并通过 `board_analysis_asset_upsert` 把高价值内容写回 dataset store。
-7. `build` 再通过 `task` 委派 `board_write`，由它读取已存储资产并生成最终报告。
-8. 这一链路依赖通用 skill + agent/tool 编排，而不是在 runtime/core 中写死业务流程。
+7. `build` 再通过 `task` 委派 `board_write`，由它读取已存储资产、生成最终报告并写入当前项目的数据目录。
+8. `board_write` 只把 markdown 文件路径返回给主对话，不把整篇报告正文塞回 session 文本。
+9. 这一链路依赖通用 skill + agent/tool 编排，而不是在 runtime/core 中写死业务流程。
 
 ## 数据归一化
 
@@ -73,6 +75,11 @@
 - 生成 dataset summary
 - 按 `analysisId + bundleType` 读取 bundle 数据
 - 按 `analysisId` 保存和读取中间 analysis assets
+
+`src/board/shared/report-store.ts` 负责：
+
+- 将最终 board 报告写入当前项目的数据目录
+- 返回报告文件路径和基础元数据
 
 ## Postgres 边界
 

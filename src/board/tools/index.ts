@@ -3,3 +3,4 @@ export { BoardAnalysisContextParameters, BoardAnalysisContextTool } from "@/boar
 export { BoardAnalysisBundleReadParameters, BoardAnalysisBundleReadTool } from "@/board/tools/board-analysis-bundle-read"
 export { BoardAnalysisAssetUpsertTool } from "@/board/tools/board-analysis-asset-upsert"
 export { BoardAnalysisAssetReadTool } from "@/board/tools/board-analysis-asset-read"
+export { BoardReportWriteTool } from "@/board/tools/board-report-write"

@@ -9,7 +9,7 @@ import type {
 import type { ISessionStore } from "@/core/session/store/types"
 import { createID } from "@/core/types"
 
-const BOARD_ANALYSIS_STORE_DIR = resolve(process.cwd(), "data", "board-analysis-store")
+export const BOARD_ANALYSIS_STORE_DIR = resolve(process.cwd(), "data", "board-analysis-store")
 
 type StoredBoardAnalysisDataset = {
   id: string

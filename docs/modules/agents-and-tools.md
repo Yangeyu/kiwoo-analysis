@@ -107,7 +107,7 @@ tool metadata key 约定优先使用 `camelCase`，例如：
 - metadata 归一化（`normalizeMetadata`）
 - 可选 output 截断（`truncateOutput`，默认关闭）
 
-`ToolContext` 目前除 runtime deps 和 metadata/artifact capture 之外，还提供受控的 `executeTool()` 能力，供 `batch` 这类组合工具复用标准 tool execution path，而不是绕开 session/tool-part/budget/event 边界直接调用其他 tool。
+`ToolContext` 目前除 runtime deps 和 metadata/structured-output capture 之外，还提供受控的 `executeTool()` 能力，供 `batch` 这类组合工具复用标准 tool execution path，而不是绕开 session/tool-part/budget/event 边界直接调用其他 tool。
 
 各 hook 的职责建议：
 
@@ -144,10 +144,10 @@ tool metadata key 约定优先使用 `camelCase`，例如：
   - 调用子 agent 再次进入 `SessionPrompt.prompt()`
   - 可委派 agent 列表来自 `agentRegistry.list()`，再在 `task` 工具层过滤 `mode === "subagent"`
   - 创建或续跑 child session 前，会校验 `subagent_max_depth`，避免无限递归委派
-  - 支持显式 `intent`（`investigate` / `draft` / `deliver`）
-  - 当子 agent 产出最终交付物时，可返回带 `artifactType`、`deliveryMode`、`contentFormat` 的结果 metadata
-  - `deliver` + `passthrough` 场景下，父 session 会直接透传产物，而不是继续让主 agent 总结
-  - delegation result metadata 统一记录 `taskId`、`sessionId`、`parentSessionId`、`agentName`、`subagentName`、`resume`、`intent` 等关键字段
+  - 子 agent 结束后，`task` 读取 child session 的最终文本结果，并把它作为普通 tool output 返回给父上下文
+  - delegation result metadata 统一记录 `taskId`、`sessionId`、`parentSessionId`、`agentName`、`subagentName`、`resume` 等关键字段
+
+board 模块当前的最终报告落盘逻辑保持在 `src/board/tools/board-report-write.ts`，`task` 本身不再承担 artifact 透传协议。
 
 ## 设计重点
 

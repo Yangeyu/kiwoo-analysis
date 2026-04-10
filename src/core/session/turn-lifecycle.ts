@@ -5,7 +5,6 @@ import type { TurnExecutionPolicy } from "@/core/session/execution-policy"
 import {
   createID,
   type AgentInfo,
-  type Artifact,
   type AssistantMessage,
   type ErrorInfo,
   type ProcessorResult,
@@ -206,15 +205,6 @@ export class TurnLifecycle {
     })
   }
 
-  captureArtifact(artifact: Artifact) {
-    this.context.assistant = this.context.session_store.updateMessage(this.context.session.id, this.context.assistant.id, {
-      artifact,
-    })
-
-    if (!artifact.body.trim()) return
-    this.appendText(artifact.body, { synthetic: true })
-  }
-
   private emitTurnComplete(finishReason: string) {
     this.context.events.emit({
       type: "turn-complete",
@@ -269,10 +259,6 @@ export function resolveTurnOutcome(input: {
 
   if (latestAssistant?.structured !== undefined) {
     return { kind: "break", reason: "structured_output" }
-  }
-
-  if (latestAssistant?.artifact?.deliveryMode === "passthrough") {
-    return { kind: "break", reason: "passthrough_artifact" }
   }
 
   if (input.result === "compact") {
