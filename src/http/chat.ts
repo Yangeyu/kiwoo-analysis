@@ -1,7 +1,7 @@
 import type { RuntimeContext } from "@/core/runtime/context"
 import type { RuntimeEvent } from "@/core/runtime/events"
 import { SessionPrompt } from "@/core/session/prompt"
-import { jsonResponse } from "@/http/responses"
+import { corsHeaders, jsonResponse } from "@/http/responses"
 import { z } from "zod"
 
 const encoder = new TextEncoder()
@@ -12,12 +12,85 @@ const PromptRequestSchema = z.object({
   sessionID: z.string().trim().min(1).optional(),
 })
 
-function toSSEChunk(event: string, data: unknown) {
-  return encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
+function serializeSSEData(data: unknown) {
+  const seen = new WeakSet<object>()
+
+  return JSON.stringify(data, (_key, value) => {
+    if (typeof value === "bigint") return value.toString()
+
+    if (value instanceof Error) {
+      return {
+        name: value.name,
+        message: value.message,
+        stack: value.stack,
+      }
+    }
+
+    if (typeof value === "object" && value !== null) {
+      if (seen.has(value)) return "[Circular]"
+      seen.add(value)
+    }
+
+    return value
+  })
 }
 
-function sendEvent(controller: ReadableStreamDefaultController<Uint8Array>, event: string, data: unknown) {
-  controller.enqueue(toSSEChunk(event, data))
+function toSingleLine(value: string, maxLength = 500) {
+  const normalized = value.replace(/\s+/g, " ").trim()
+  if (normalized.length <= maxLength) return normalized
+  return `${normalized.slice(0, maxLength)}...`
+}
+
+function logOutgoingSSE(event: string, payload: string) {
+  console.log(`[sse] ${event} ${toSingleLine(payload)}`)
+}
+
+function createStreamWriter(controller: ReadableStreamDefaultController<Uint8Array>) {
+  let closed = false
+
+  return {
+    send(event: string, data: unknown) {
+      if (closed) return false
+
+      try {
+        const payload = serializeSSEData(data)
+        controller.enqueue(encoder.encode(`event: ${event}\ndata: ${payload}\n\n`))
+        logOutgoingSSE(event, payload)
+        return true
+      } catch {
+        closed = true
+        return false
+      }
+    },
+
+    comment(text: string) {
+      if (closed) return false
+
+      try {
+        controller.enqueue(encoder.encode(`: ${text}\n\n`))
+        logOutgoingSSE("comment", text)
+        return true
+      } catch {
+        closed = true
+        return false
+      }
+    },
+
+    close() {
+      if (closed) return
+      closed = true
+
+      try {
+        controller.close()
+      } catch {
+        // Ignore close failures after the client disconnects.
+      }
+    },
+
+    cancel() {
+      closed = true
+    },
+  }
 }
 
 function belongsToSessionTree(runtime: RuntimeContext, sessionID: string, rootSessionID: string) {
@@ -39,7 +112,7 @@ function belongsToSessionTree(runtime: RuntimeContext, sessionID: string, rootSe
 function createEventForwarder(input: {
   runtime: RuntimeContext
   rootSessionID: string
-  controller: ReadableStreamDefaultController<Uint8Array>
+  writer: ReturnType<typeof createStreamWriter>
 }) {
   const textStarted = new Set<string>()
 
@@ -47,7 +120,7 @@ function createEventForwarder(input: {
     if (!belongsToSessionTree(input.runtime, event.sessionID, input.rootSessionID)) return
 
     if (event.type === "turn-start") {
-      sendEvent(input.controller, "message-metadata", {
+      input.writer.send("message-metadata", {
         sessionID: event.sessionID,
         messageID: event.messageID,
         agent: event.agent,
@@ -57,7 +130,7 @@ function createEventForwarder(input: {
     }
 
     if (event.type === "reasoning") {
-      sendEvent(input.controller, "reasoning-delta", {
+      input.writer.send("reasoning-delta", {
         sessionID: event.sessionID,
         messageID: event.messageID,
         delta: event.textDelta,
@@ -68,13 +141,13 @@ function createEventForwarder(input: {
     if (event.type === "text") {
       if (!textStarted.has(event.messageID)) {
         textStarted.add(event.messageID)
-        sendEvent(input.controller, "text-start", {
+        input.writer.send("text-start", {
           sessionID: event.sessionID,
           messageID: event.messageID,
         })
       }
 
-      sendEvent(input.controller, "text-delta", {
+      input.writer.send("text-delta", {
         sessionID: event.sessionID,
         messageID: event.messageID,
         delta: event.textDelta,
@@ -83,7 +156,7 @@ function createEventForwarder(input: {
     }
 
     if (event.type === "tool-call") {
-      sendEvent(input.controller, "tool-call", {
+      input.writer.send("tool-call", {
         sessionID: event.sessionID,
         messageID: event.messageID,
         toolCall: {
@@ -96,7 +169,7 @@ function createEventForwarder(input: {
     }
 
     if (event.type === "tool-metadata") {
-      sendEvent(input.controller, "tool-call", {
+      input.writer.send("tool-call", {
         sessionID: event.sessionID,
         messageID: event.messageID,
         toolCall: {
@@ -110,7 +183,7 @@ function createEventForwarder(input: {
     }
 
     if (event.type === "tool-result") {
-      sendEvent(input.controller, "tool-result", {
+      input.writer.send("tool-result", {
         sessionID: event.sessionID,
         messageID: event.messageID,
         toolResult: {
@@ -126,7 +199,7 @@ function createEventForwarder(input: {
     }
 
     if (event.type === "tool-error") {
-      sendEvent(input.controller, "tool-result", {
+      input.writer.send("tool-result", {
         sessionID: event.sessionID,
         messageID: event.messageID,
         toolResult: {
@@ -141,7 +214,7 @@ function createEventForwarder(input: {
     }
 
     if (event.type === "finish") {
-      sendEvent(input.controller, "finish", {
+      input.writer.send("finish", {
         sessionID: event.sessionID,
         messageID: event.messageID,
         finishReason: event.finishReason,
@@ -150,7 +223,7 @@ function createEventForwarder(input: {
     }
 
     if (event.type === "error") {
-      sendEvent(input.controller, "error", {
+      input.writer.send("error", {
         sessionID: event.sessionID,
         messageID: event.messageID,
         error: event.error,
@@ -193,29 +266,53 @@ export async function handleChatRequest(request: Request, runtime: RuntimeContex
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
       const abortController = new AbortController()
-      let closed = false
+      const writer = createStreamWriter(controller)
+      let cleanedUp = false
+
+      // Periodically send a keep-alive comment to prevent connection timeouts
+      // during long-running tool executions or reasoning phases.
+      const heartbeat = setInterval(() => {
+        if (!writer.comment("keep-alive")) {
+          cleanup({ abortPrompt: true })
+        }
+      }, 15000)
+
       const unsubscribe = runtime.events.subscribe(createEventForwarder({
         runtime,
         rootSessionID: rootSession.id,
-        controller,
+        writer,
       }))
 
-      const close = () => {
-        if (closed) return
-        closed = true
+      const cleanup = (options?: { abortPrompt?: boolean; closeStream?: boolean }) => {
+        if (cleanedUp) return
+        cleanedUp = true
+
+        if (options?.abortPrompt && !abortController.signal.aborted) {
+          abortController.abort()
+        }
+
+        clearInterval(heartbeat)
         unsubscribe()
-        controller.close()
+
+        if (options?.closeStream) {
+          writer.close()
+          return
+        }
+
+        writer.cancel()
       }
 
       request.signal.addEventListener("abort", () => {
-        abortController.abort()
-        unsubscribe()
+        cleanup({ abortPrompt: true })
       }, { once: true })
 
-      sendEvent(controller, "session-metadata", {
+      if (!writer.send("session-metadata", {
         sessionID: rootSession.id,
         agent,
-      })
+      })) {
+        cleanup({ abortPrompt: true })
+        return
+      }
 
       void SessionPrompt.prompt({
         sessionID: rootSession.id,
@@ -223,17 +320,20 @@ export async function handleChatRequest(request: Request, runtime: RuntimeContex
         agent,
         abort: abortController.signal,
       }, runtime).then(() => {
-        sendEvent(controller, "done", {
+        const sent = writer.send("done", {
           sessionID: rootSession.id,
         })
-        close()
+
+        cleanup({ closeStream: sent })
       }).catch((error: unknown) => {
         if (abortController.signal.aborted) return
-        sendEvent(controller, "error", {
+
+        const sent = writer.send("error", {
           sessionID: rootSession.id,
           error: error instanceof Error ? error.message : String(error),
         })
-        close()
+
+        cleanup({ closeStream: sent })
       })
     },
     cancel() {
@@ -243,6 +343,7 @@ export async function handleChatRequest(request: Request, runtime: RuntimeContex
 
   return new Response(stream, {
     headers: {
+      ...corsHeaders,
       "content-type": "text/event-stream; charset=utf-8",
       "cache-control": "no-cache, no-transform",
       connection: "keep-alive",

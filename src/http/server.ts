@@ -1,5 +1,6 @@
 import { createAppRuntime } from "@/app/runtime"
 import { handleChatRequest } from "@/http/chat"
+import { handleFileContentRequest } from "@/http/files"
 import { createOpenAPIDocument, renderScalarDocumentPage } from "@/http/openapi"
 import { corsHeaders, htmlResponse, jsonResponse } from "@/http/responses"
 
@@ -36,6 +37,7 @@ export async function startHttpServer(argv: string[] = process.argv.slice(2)) {
 
   const startServer = (port: number) => Bun.serve({
     port,
+    idleTimeout: 60,
     async fetch(request) {
       const url = new URL(request.url)
       const baseUrl = url.origin
@@ -63,6 +65,10 @@ export async function startHttpServer(argv: string[] = process.argv.slice(2)) {
 
       if (request.method === "POST" && url.pathname === "/api/chat") {
         return handleChatRequest(request, runtime)
+      }
+
+      if (request.method === "GET" && url.pathname === "/api/files/content") {
+        return handleFileContentRequest(request)
       }
 
       return jsonResponse({ error: "Not found" }, { status: 404 })
