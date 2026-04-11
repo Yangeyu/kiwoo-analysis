@@ -128,6 +128,7 @@ export type SessionHistoryMessage = {
 export type ToolContext = RuntimeDeps & {
   sessionID: string
   messageID: string
+  turnID: string
   agent: string
   abort: AbortSignal
   toolCallId?: string

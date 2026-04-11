@@ -41,15 +41,42 @@ export type ToolCallState = {
   }
 }
 
+export type AssistantTurn = {
+  sessionID: string
+  messageID: string
+  turnID: string
+  agent: string
+  reasoning: string
+  text: string
+  toolCalls: ToolCallState[]
+  finishReason?: string
+  errored?: string
+}
+
+export type AssistantCoTBlock = {
+  id: string
+  kind: "cot"
+  sessionID: string
+  turnIDs: string[]
+}
+
+export type AssistantAnswerBlock = {
+  id: string
+  kind: "answer"
+  turnID: string
+}
+
+export type AssistantContentBlock = AssistantCoTBlock | AssistantAnswerBlock
+
 export type AssistantBubble = {
   id: string
   role: "assistant"
   sessionID: string
+  messageID?: string
   agent: string
-  step: number
-  reasoning: string
-  text: string
-  toolCalls: ToolCallState[]
+  turns: AssistantTurn[]
+  blocks: AssistantContentBlock[]
+  taskTitles: Record<string, string>
   finishReason?: string
   errored?: string
 }
@@ -69,6 +96,7 @@ export type StreamEvent =
       data: {
         sessionID: string
         messageID: string
+        turnID: string
         agent: string
         step: number
       }
@@ -78,6 +106,7 @@ export type StreamEvent =
       data: {
         sessionID: string
         messageID: string
+        turnID: string
         delta: string
       }
     }
@@ -86,6 +115,7 @@ export type StreamEvent =
       data: {
         sessionID: string
         messageID: string
+        turnID: string
       }
     }
   | {
@@ -93,6 +123,7 @@ export type StreamEvent =
       data: {
         sessionID: string
         messageID: string
+        turnID: string
         delta: string
       }
     }
@@ -101,6 +132,7 @@ export type StreamEvent =
       data: {
         sessionID: string
         messageID: string
+        turnID: string
         toolCall: {
           toolCallId: string
           toolName: string
@@ -115,6 +147,7 @@ export type StreamEvent =
       data: {
         sessionID: string
         messageID: string
+        turnID: string
         toolResult: {
           toolCallId: string
           toolName: string
@@ -134,6 +167,7 @@ export type StreamEvent =
       data: {
         sessionID: string
         messageID: string
+        turnID: string
         finishReason: string
       }
     }
@@ -142,6 +176,7 @@ export type StreamEvent =
       data: {
         sessionID: string
         messageID?: string
+        turnID?: string
         error: string
       }
     }

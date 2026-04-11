@@ -180,6 +180,19 @@ function createTaskTool<P extends z.ZodTypeAny>(input: {
         throw new Error(`Subagent depth limit reached: attempted depth ${childDepth}, max ${ctx.config.subagent_max_depth}`)
       }
 
+      await ctx.metadata({
+        title: args.description,
+        metadata: {
+          taskId: child.id,
+          sessionId: child.id,
+          parentSessionId: ctx.sessionID,
+          agentName: agent.name,
+          subagentName: agent.name,
+          resume: input.resume,
+          completed: false,
+        },
+      })
+
       await SessionPrompt.prompt({
         sessionID: child.id,
         text: args.prompt,

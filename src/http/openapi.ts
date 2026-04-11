@@ -1,12 +1,12 @@
 const sseEventExamples = [
   "event: session-metadata\ndata: {\"sessionID\":\"abc123\",\"agent\":\"build\"}",
-  "event: message-metadata\ndata: {\"sessionID\":\"abc123\",\"messageID\":\"msg_1\",\"agent\":\"build\",\"step\":1}",
-  "event: text-start\ndata: {\"sessionID\":\"abc123\",\"messageID\":\"msg_1\"}",
-  "event: text-delta\ndata: {\"sessionID\":\"abc123\",\"messageID\":\"msg_1\",\"delta\":\"Hello\"}",
-  "event: reasoning-delta\ndata: {\"sessionID\":\"abc123\",\"messageID\":\"msg_1\",\"delta\":\"Thinking...\"}",
-  "event: tool-call\ndata: {\"sessionID\":\"abc123\",\"messageID\":\"msg_1\",\"toolCall\":{\"toolCallId\":\"call_1\",\"toolName\":\"read\",\"args\":{\"filePath\":\"src/index.ts\"}}}",
-  "event: tool-result\ndata: {\"sessionID\":\"abc123\",\"messageID\":\"msg_1\",\"toolResult\":{\"toolCallId\":\"call_1\",\"toolName\":\"read\",\"output\":\"file content\"}}",
-  "event: finish\ndata: {\"sessionID\":\"abc123\",\"messageID\":\"msg_1\",\"finishReason\":\"stop\"}",
+  "event: message-metadata\ndata: {\"sessionID\":\"abc123\",\"messageID\":\"msg_1\",\"turnID\":\"turn_1\",\"agent\":\"build\",\"step\":1}",
+  "event: text-start\ndata: {\"sessionID\":\"abc123\",\"messageID\":\"msg_1\",\"turnID\":\"turn_1\"}",
+  "event: text-delta\ndata: {\"sessionID\":\"abc123\",\"messageID\":\"msg_1\",\"turnID\":\"turn_1\",\"delta\":\"Hello\"}",
+  "event: reasoning-delta\ndata: {\"sessionID\":\"abc123\",\"messageID\":\"msg_1\",\"turnID\":\"turn_1\",\"delta\":\"Thinking...\"}",
+  "event: tool-call\ndata: {\"sessionID\":\"abc123\",\"messageID\":\"msg_1\",\"turnID\":\"turn_1\",\"toolCall\":{\"toolCallId\":\"call_1\",\"toolName\":\"read\",\"args\":{\"filePath\":\"src/index.ts\"}}}",
+  "event: tool-result\ndata: {\"sessionID\":\"abc123\",\"messageID\":\"msg_1\",\"turnID\":\"turn_1\",\"toolResult\":{\"toolCallId\":\"call_1\",\"toolName\":\"read\",\"output\":\"file content\"}}",
+  "event: finish\ndata: {\"sessionID\":\"abc123\",\"messageID\":\"msg_1\",\"turnID\":\"turn_1\",\"finishReason\":\"stop\"}",
   "event: done\ndata: {\"sessionID\":\"abc123\"}",
 ].join("\n\n")
 

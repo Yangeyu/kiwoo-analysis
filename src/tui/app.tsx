@@ -41,7 +41,7 @@ function App(props: TuiOptions) {
   let composerRef: ComposerHandle | undefined
   let traceCount = 0
   const sessionPaths = new Map<string, string[]>()
-  const activeTurns = new Map<string, { messageID: string; agent: string; reasoningEntryID?: string; answerEntryID?: string }>()
+  const activeTurns = new Map<string, { turnID: string; agent: string; reasoningEntryID?: string; answerEntryID?: string }>()
   const activeTools = new Map<string, string[]>()
 
   const refresh = () => setRevision((value) => value + 1)

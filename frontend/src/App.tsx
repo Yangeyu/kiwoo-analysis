@@ -1,10 +1,20 @@
-import { startTransition, useEffect, useRef, useState, useMemo } from "react"
+import { startTransition, useEffect, useRef, useState } from "react"
 import { consumeChatStream } from "./lib/chat-stream"
 import { fetchArtifactContent } from "./lib/files"
-import { ChainOfThought } from "./components/ChainOfThought"
+import { AssistantMessage } from "./components/AssistantMessage"
 import { DetailDrawer } from "./components/DetailDrawer"
 import { Header } from "./components/Header"
-import type { ArtifactFile, AssistantBubble, ChatBubble, DetailState, StreamEvent, ToolCallState, UserBubble } from "./types"
+import type {
+  ArtifactFile,
+  AssistantBubble,
+  AssistantContentBlock,
+  AssistantTurn,
+  ChatBubble,
+  DetailState,
+  StreamEvent,
+  ToolCallState,
+  UserBubble,
+} from "./types"
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, "") || "http://localhost:4444"
 const DEFAULT_AGENT = "build"
@@ -17,16 +27,16 @@ function createUserBubble(text: string): UserBubble {
   }
 }
 
-function createAssistantBubble(event: Extract<StreamEvent, { event: "message-metadata" }>): AssistantBubble {
+function createAssistantBubble(id: string): AssistantBubble {
   return {
-    id: `${event.data.sessionID}:${event.data.messageID}`,
+    id,
     role: "assistant",
-    sessionID: event.data.sessionID,
-    agent: event.data.agent,
-    step: event.data.step,
-    reasoning: "",
-    text: "",
-    toolCalls: [],
+    sessionID: "",
+    messageID: undefined,
+    agent: DEFAULT_AGENT,
+    turns: [],
+    blocks: [],
+    taskTitles: {},
   }
 }
 
@@ -42,6 +52,65 @@ function upsertToolCall(toolCalls: ToolCallState[], patch: ToolCallState) {
   return next
 }
 
+function upsertTurn(turns: AssistantTurn[], patch: AssistantTurn) {
+  const index = turns.findIndex((item) => item.turnID === patch.turnID)
+  if (index === -1) return [...turns, patch]
+
+  const next = [...turns]
+  next[index] = {
+    ...next[index],
+    ...patch,
+  }
+  return next
+}
+
+function patchTurn(turns: AssistantTurn[], turnID: string, updater: (turn: AssistantTurn) => AssistantTurn) {
+  return turns.map((turn) => (turn.turnID === turnID ? updater(turn) : turn))
+}
+
+function appendCoTBlock(blocks: AssistantContentBlock[], turn: Pick<AssistantTurn, "sessionID" | "turnID">) {
+  const lastBlock = blocks.at(-1)
+
+  if (lastBlock?.kind === "cot" && lastBlock.sessionID === turn.sessionID) {
+    if (lastBlock.turnIDs.includes(turn.turnID)) return blocks
+
+    return [
+      ...blocks.slice(0, -1),
+      {
+        ...lastBlock,
+        turnIDs: [...lastBlock.turnIDs, turn.turnID],
+      },
+    ]
+  }
+
+  return [
+    ...blocks,
+    {
+      id: `cot:${turn.sessionID}:${turn.turnID}`,
+      kind: "cot" as const,
+      sessionID: turn.sessionID,
+      turnIDs: [turn.turnID],
+    },
+  ]
+}
+
+function appendAnswerBlock(blocks: AssistantContentBlock[], turnID: string) {
+  const id = `answer:${turnID}`
+  if (blocks.some((block) => block.id === id)) return blocks
+  return [...blocks, { id, kind: "answer" as const, turnID }]
+}
+
+function readTaskTitle(toolCall: ToolCallState) {
+  const sessionId = toolCall.metadata?.sessionId
+  const title = toolCall.title
+  if (typeof sessionId !== "string" || sessionId.trim().length === 0) return null
+  if (typeof title !== "string" || title.trim().length === 0) return null
+  return {
+    sessionID: sessionId,
+    title,
+  }
+}
+
 function patchAssistant(
   bubbles: ChatBubble[],
   id: string,
@@ -55,6 +124,7 @@ function patchAssistant(
 
 function applyStreamEvent(
   bubbles: ChatBubble[],
+  assistantID: string,
   event: StreamEvent,
   setters: {
     setSessionID: React.Dispatch<React.SetStateAction<string>>
@@ -67,71 +137,192 @@ function applyStreamEvent(
   }
 
   if (event.event === "message-metadata") {
-    const nextBubble = createAssistantBubble(event)
-    if (bubbles.some((bubble) => bubble.role === "assistant" && bubble.id === nextBubble.id)) {
-      return bubbles
-    }
-    return [...bubbles, nextBubble]
+    return patchAssistant(bubbles, assistantID, (bubble) => ({
+      ...bubble,
+      sessionID: bubble.sessionID || event.data.sessionID,
+      messageID: bubble.messageID ?? event.data.messageID,
+      agent: bubble.turns.length === 0 ? event.data.agent : bubble.agent,
+      turns: upsertTurn(bubble.turns, {
+        sessionID: event.data.sessionID,
+        messageID: event.data.messageID,
+        turnID: event.data.turnID,
+        agent: event.data.agent,
+        reasoning: "",
+        text: "",
+        toolCalls: [],
+      }),
+    }))
   }
 
   if (event.event === "error" && !event.data.messageID) {
     setters.setError(event.data.error)
-    return bubbles
+    return patchAssistant(bubbles, assistantID, (bubble) => ({
+      ...bubble,
+      errored: event.data.error,
+    }))
   }
 
   if (
     event.event !== "reasoning-delta" &&
+    event.event !== "text-start" &&
     event.event !== "text-delta" &&
     event.event !== "tool-call" &&
     event.event !== "tool-result" &&
     event.event !== "finish" &&
-    !(event.event === "error" && event.data.messageID)
+    event.event !== "error"
   ) {
     return bubbles
   }
 
-  const id = `${event.data.sessionID}:${event.data.messageID}`
+  if (event.event === "error") {
+    const turnID = event.data.turnID
 
-  return patchAssistant(bubbles, id, (bubble) => {
+    if (!turnID) {
+      return patchAssistant(bubbles, assistantID, (bubble) => ({
+        ...bubble,
+        errored: event.data.error,
+      }))
+    }
+
+    return patchAssistant(bubbles, assistantID, (bubble) => {
+      const turns = bubble.turns.some((turn) => turn.turnID === turnID)
+        ? bubble.turns
+        : [...bubble.turns, {
+            sessionID: event.data.sessionID,
+            messageID: event.data.messageID ?? bubble.messageID ?? "",
+            turnID,
+            agent: bubble.agent,
+            reasoning: "",
+            text: "",
+            toolCalls: [],
+          }]
+
+      return {
+        ...bubble,
+        messageID: bubble.messageID ?? event.data.messageID,
+        turns: patchTurn(turns, turnID, (turn) => ({
+          ...turn,
+          errored: event.data.error,
+        })),
+        blocks: appendCoTBlock(bubble.blocks, {
+          sessionID: turns.find((turn) => turn.turnID === turnID)?.sessionID ?? bubble.sessionID,
+          turnID,
+        }),
+        errored: event.data.error,
+      }
+    })
+  }
+
+  return patchAssistant(bubbles, assistantID, (bubble) => {
+    const turnID = event.data.turnID
+    const fallbackTurn: AssistantTurn = {
+      sessionID: event.data.sessionID,
+      messageID: event.data.messageID,
+      turnID,
+      agent: bubble.agent,
+      reasoning: "",
+      text: "",
+      toolCalls: [],
+    }
+    const turns = bubble.turns.some((turn) => turn.turnID === turnID)
+      ? bubble.turns
+      : [...bubble.turns, fallbackTurn]
+
     if (event.event === "reasoning-delta") {
       return {
         ...bubble,
-        reasoning: bubble.reasoning + event.data.delta,
+        messageID: bubble.messageID ?? event.data.messageID,
+        turns: patchTurn(turns, turnID, (turn) => ({
+          ...turn,
+          reasoning: turn.reasoning + event.data.delta,
+        })),
+        blocks: appendCoTBlock(bubble.blocks, {
+          sessionID: turns.find((turn) => turn.turnID === turnID)?.sessionID ?? bubble.sessionID,
+          turnID,
+        }),
+      }
+    }
+
+    if (event.event === "text-start") {
+      return {
+        ...bubble,
+        messageID: bubble.messageID ?? event.data.messageID,
+        turns,
+        blocks: appendAnswerBlock(bubble.blocks, turnID),
       }
     }
 
     if (event.event === "text-delta") {
       return {
         ...bubble,
-        text: bubble.text + event.data.delta,
+        messageID: bubble.messageID ?? event.data.messageID,
+        turns: patchTurn(turns, turnID, (turn) => ({
+          ...turn,
+          text: turn.text + event.data.delta,
+        })),
+        blocks: appendAnswerBlock(bubble.blocks, turnID),
       }
     }
 
     if (event.event === "tool-call") {
+      const titlePatch = readTaskTitle(event.data.toolCall)
+
       return {
         ...bubble,
-        toolCalls: upsertToolCall(bubble.toolCalls, event.data.toolCall),
+        messageID: bubble.messageID ?? event.data.messageID,
+        turns: patchTurn(turns, turnID, (turn) => ({
+          ...turn,
+          toolCalls: upsertToolCall(turn.toolCalls, event.data.toolCall),
+        })),
+        blocks: appendCoTBlock(bubble.blocks, {
+          sessionID: turns.find((turn) => turn.turnID === turnID)?.sessionID ?? bubble.sessionID,
+          turnID,
+        }),
+        taskTitles: titlePatch
+          ? {
+              ...bubble.taskTitles,
+              [titlePatch.sessionID]: titlePatch.title,
+            }
+          : bubble.taskTitles,
       }
     }
 
     if (event.event === "tool-result") {
+      const titlePatch = readTaskTitle(event.data.toolResult)
+
       return {
         ...bubble,
-        toolCalls: upsertToolCall(bubble.toolCalls, event.data.toolResult),
+        messageID: bubble.messageID ?? event.data.messageID,
+        turns: patchTurn(turns, turnID, (turn) => ({
+          ...turn,
+          toolCalls: upsertToolCall(turn.toolCalls, event.data.toolResult),
+        })),
+        blocks: appendCoTBlock(bubble.blocks, {
+          sessionID: turns.find((turn) => turn.turnID === turnID)?.sessionID ?? bubble.sessionID,
+          turnID,
+        }),
+        taskTitles: titlePatch
+          ? {
+              ...bubble.taskTitles,
+              [titlePatch.sessionID]: titlePatch.title,
+            }
+          : bubble.taskTitles,
       }
     }
 
     if (event.event === "finish") {
       return {
         ...bubble,
+        messageID: bubble.messageID ?? event.data.messageID,
+        turns: patchTurn(turns, turnID, (turn) => ({
+          ...turn,
+          finishReason: event.data.finishReason,
+        })),
         finishReason: event.data.finishReason,
       }
     }
 
-    return {
-      ...bubble,
-      errored: event.data.error,
-    }
+    return bubble
   })
 }
 
@@ -145,6 +336,7 @@ export default function App() {
   
   const isAtBottomRef = useRef(true)
   const abortRef = useRef<AbortController | null>(null)
+  const streamingAssistantIDRef = useRef<string | null>(null)
   const detailRequestRef = useRef(0)
   const transcriptRef = useRef<HTMLDivElement | null>(null)
 
@@ -166,26 +358,6 @@ export default function App() {
     transcript.scrollTop = transcript.scrollHeight
   }, [bubbles])
 
-  // Grouping logic: Collect consecutive assistant steps into a single "Chain"
-  const groups = useMemo(() => {
-    const result: Array<{ role: "user"; bubble: UserBubble } | { role: "assistant"; agent: string; steps: AssistantBubble[] }> = []
-    
-    bubbles.forEach((bubble) => {
-      if (bubble.role === "user") {
-        result.push({ role: "user", bubble })
-      } else {
-        const lastGroup = result[result.length - 1]
-        if (lastGroup && lastGroup.role === "assistant" && lastGroup.agent === bubble.agent) {
-          lastGroup.steps.push(bubble)
-        } else {
-          result.push({ role: "assistant", agent: bubble.agent, steps: [bubble] })
-        }
-      }
-    })
-    
-    return result
-  }, [bubbles])
-
   useEffect(() => {
     // Scroll handling is now handled by the custom logic above
   }, [])
@@ -199,13 +371,15 @@ export default function App() {
     isAtBottomRef.current = true
 
     const controller = new AbortController()
+    const assistantID = `assistant-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
     abortRef.current = controller
+    streamingAssistantIDRef.current = assistantID
 
     setDraft("")
     setError("")
     setIsStreaming(true)
     startTransition(() => {
-      setBubbles((current) => [...current, createUserBubble(prompt)])
+      setBubbles((current) => [...current, createUserBubble(prompt), createAssistantBubble(assistantID)])
     })
 
     try {
@@ -217,17 +391,25 @@ export default function App() {
         signal: controller.signal,
         onEvent: (event) => {
           startTransition(() => {
-            setBubbles((current) => applyStreamEvent(current, event, { setSessionID, setError }))
+            setBubbles((current) => applyStreamEvent(current, assistantID, event, { setSessionID, setError }))
           })
         },
       })
     } catch (err) {
       if (!controller.signal.aborted) {
-        setError(err instanceof Error ? err.message : String(err))
+        const message = err instanceof Error ? err.message : String(err)
+        setError(message)
+        setBubbles((current) =>
+          patchAssistant(current, assistantID, (bubble) => ({
+            ...bubble,
+            errored: message,
+          })),
+        )
       }
     } finally {
       setIsStreaming(false)
       abortRef.current = null
+      streamingAssistantIDRef.current = null
     }
   }
 
@@ -298,7 +480,7 @@ export default function App() {
           className="flex-1 overflow-y-auto px-6 py-8"
         >
           <div className="mx-auto w-full max-w-3xl space-y-20 pb-48">
-            {groups.length === 0 && (
+            {bubbles.length === 0 && (
               <div className="pt-32 space-y-3">
                 <h1 className="text-4xl font-semibold tracking-tight text-[#171717]">
                   What shall we build?
@@ -309,19 +491,18 @@ export default function App() {
               </div>
             )}
 
-            {groups.map((group, idx) => (
-              <div key={idx} className="animate-in fade-in slide-in-from-bottom-2 duration-700">
-                {group.role === "user" ? (
+            {bubbles.map((bubble) => (
+              <div key={bubble.id} className="animate-in fade-in slide-in-from-bottom-2 duration-700">
+                {bubble.role === "user" ? (
                   <div className="flex flex-col items-end">
                     <div className="max-w-[85%] rounded-[24px] bg-[#171717] px-5 py-3 text-[15px] leading-relaxed text-white shadow-sm">
-                      {group.bubble.text}
+                      {bubble.text}
                     </div>
                   </div>
                 ) : (
-                  <ChainOfThought 
-                    agent={group.agent} 
-                    steps={group.steps} 
-                    isStreaming={isStreaming && idx === groups.length - 1} 
+                  <AssistantMessage
+                    bubble={bubble}
+                    isStreaming={isStreaming && streamingAssistantIDRef.current === bubble.id}
                     onShowDetail={handleShowReasoning}
                     onShowArtifact={handleShowArtifact}
                   />

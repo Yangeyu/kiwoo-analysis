@@ -82,6 +82,8 @@ http://localhost:5173
 
 Override the backend base URL with `VITE_API_BASE_URL` when needed.
 
+The frontend transcript now renders one assistant message per submitted user prompt, then orders the inner content as alternating `CoT` and `build answer` blocks based on streamed turn output. Tool activity and delegated subagent steps stay inside that single assistant message instead of splitting into separate bubbles.
+
 SSE server example:
 
 ```bash
@@ -111,6 +113,8 @@ The SSE endpoint emits frontend-friendly events modeled after the Vercel SDK str
 - `error`
 - `done`
 
+For streamed assistant output, `messageID` now identifies the whole reply to one user prompt, while `turnID` identifies an individual assistant step inside that reply.
+
 Online API docs are also available:
 
 ```bash
@@ -127,7 +131,7 @@ Useful flags:
 - `--json` to print the full final session JSON after the live CLI UI
 - `--trace` to print the current run's turn trace after the answer
 - `--replay-step <n>` to print a replayable turn-input snapshot for a traced step
-- `--replay-message <id>` to print a replayable turn-input snapshot for a traced assistant message
+- `--replay-turn <id>` to print a replayable turn-input snapshot for a traced assistant turn
 - `--output stream|buffered`
 - `--tui` to force the interactive terminal UI
 

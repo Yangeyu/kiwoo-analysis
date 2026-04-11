@@ -9,6 +9,7 @@ import type { AssistantMessage, SessionInfo, ToolDefinition, UserMessage } from 
 export type ReplayTurnInput = {
   sessionID: string
   messageID: string
+  turnID: string
   step: number
   agent: string
   system: string[]
@@ -18,7 +19,7 @@ export type ReplayTurnInput = {
 }
 
 export type RuntimeReplay = {
-  turnInput(input: { sessionID: string; messageID: string } | { sessionID: string; step: number }): ReplayTurnInput
+  turnInput(input: { sessionID: string; turnID: string } | { sessionID: string; step: number }): ReplayTurnInput
 }
 
 export function createRuntimeReplay(input: {
@@ -31,7 +32,7 @@ export function createRuntimeReplay(input: {
     turnInput(selector) {
       const turn = resolveTurn(input.trace, selector)
       const session = input.session_store.get(turn.sessionID)
-      const assistant = resolveAssistantMessage(session, turn.messageID)
+      const assistant = resolveAssistantMessage(session, turn.turnID)
       const user = resolveUserMessage(session, assistant.parentID)
       const agent = input.agent_registry.get(assistant.agent)
       const replaySession = buildReplaySession(session, assistant.id)
@@ -41,6 +42,7 @@ export function createRuntimeReplay(input: {
       return {
         sessionID: turn.sessionID,
         messageID: turn.messageID,
+        turnID: turn.turnID,
         step: turn.step,
         agent: turn.agent,
         system: [...(turn.system ?? [])],
@@ -61,12 +63,12 @@ export function createRuntimeReplay(input: {
   }
 }
 
-function resolveTurn(trace: RuntimeTrace, selector: { sessionID: string; messageID: string } | { sessionID: string; step: number }) {
+function resolveTurn(trace: RuntimeTrace, selector: { sessionID: string; turnID: string } | { sessionID: string; step: number }) {
   const turns = trace.turnsForSession(selector.sessionID)
 
-  if ("messageID" in selector) {
-    const turn = turns.find((item) => item.messageID === selector.messageID)
-    if (!turn) throw new Error(`Replay turn not found for session ${selector.sessionID} message ${selector.messageID}`)
+  if ("turnID" in selector) {
+    const turn = turns.find((item) => item.turnID === selector.turnID)
+    if (!turn) throw new Error(`Replay turn not found for session ${selector.sessionID} turn ${selector.turnID}`)
     return turn
   }
 
@@ -75,10 +77,10 @@ function resolveTurn(trace: RuntimeTrace, selector: { sessionID: string; message
   return turn
 }
 
-function resolveAssistantMessage(session: SessionInfo, messageID: string) {
-  const message = session.messages.find((item) => item.id === messageID)
+function resolveAssistantMessage(session: SessionInfo, turnID: string) {
+  const message = session.messages.find((item) => item.id === turnID)
   if (!message || message.role !== "assistant") {
-    throw new Error(`Replay assistant message not found: ${messageID}`)
+    throw new Error(`Replay assistant message not found: ${turnID}`)
   }
 
   return message as AssistantMessage

@@ -28,6 +28,7 @@ export type TurnTrace = {
   sessionID: string
   agent: string
   messageID: string
+  turnID: string
   step: number
   system?: string[]
   tools?: string[]
@@ -57,12 +58,13 @@ export function createRuntimeTrace(events: RuntimeEventBus): RuntimeTrace {
 
   events.subscribe((event) => {
     if (event.type === "turn-start") {
-      const key = toTurnKey(event.sessionID, event.messageID)
+      const key = toTurnKey(event.sessionID, event.turnID)
       if (!turns.has(key)) {
         turns.set(key, {
           sessionID: event.sessionID,
           agent: event.agent,
           messageID: event.messageID,
+          turnID: event.turnID,
           step: event.step,
           toolCalls: [],
           retries: [],
@@ -75,7 +77,7 @@ export function createRuntimeTrace(events: RuntimeEventBus): RuntimeTrace {
     }
 
     if (event.type === "turn-input") {
-      const turn = getOrCreateTurn(turns, order, event.sessionID, event.agent, event.messageID, event.step)
+      const turn = getOrCreateTurn(turns, order, event.sessionID, event.agent, event.messageID, event.turnID, event.step)
       turn.system = [...event.system]
       turn.tools = [...event.tools]
       turn.messageCount = event.messageCount
@@ -120,7 +122,7 @@ export function createRuntimeTrace(events: RuntimeEventBus): RuntimeTrace {
     }
 
     if (event.type === "retry") {
-      const turn = getOrCreateTurn(turns, order, event.sessionID, event.agent, event.messageID)
+      const turn = getOrCreateTurn(turns, order, event.sessionID, event.agent, event.messageID, event.turnID)
       turn.retries.push({
         attempt: event.attempt,
         delayMs: event.delayMs,
@@ -144,7 +146,7 @@ export function createRuntimeTrace(events: RuntimeEventBus): RuntimeTrace {
     }
 
     if (event.type === "turn-outcome") {
-      const turn = getOrCreateTurn(turns, order, event.sessionID, event.agent, event.messageID, event.step)
+      const turn = getOrCreateTurn(turns, order, event.sessionID, event.agent, event.messageID, event.turnID, event.step)
       turn.outcome = {
         kind: event.outcome,
         reason: event.reason,
@@ -160,7 +162,7 @@ export function createRuntimeTrace(events: RuntimeEventBus): RuntimeTrace {
     }
 
     if (event.type === "turn-complete") {
-      const turn = getOrCreateTurn(turns, order, event.sessionID, event.agent, event.messageID)
+      const turn = getOrCreateTurn(turns, order, event.sessionID, event.agent, event.messageID, event.turnID)
       turn.finishReason = event.finishReason
       turn.durationMs = event.durationMs
       activeBySessionAgent.delete(toSessionAgentKey(event.sessionID, event.agent))
@@ -168,7 +170,7 @@ export function createRuntimeTrace(events: RuntimeEventBus): RuntimeTrace {
     }
 
     if (event.type === "turn-abort") {
-      const turn = getOrCreateTurn(turns, order, event.sessionID, event.agent, event.messageID)
+      const turn = getOrCreateTurn(turns, order, event.sessionID, event.agent, event.messageID, event.turnID)
       turn.aborted = true
       turn.durationMs = event.durationMs
       activeBySessionAgent.delete(toSessionAgentKey(event.sessionID, event.agent))
@@ -199,8 +201,8 @@ export function createRuntimeTrace(events: RuntimeEventBus): RuntimeTrace {
   }
 }
 
-function toTurnKey(sessionID: string, messageID: string) {
-  return `${sessionID}:${messageID}`
+function toTurnKey(sessionID: string, turnID: string) {
+  return `${sessionID}:${turnID}`
 }
 
 function toSessionAgentKey(sessionID: string, agent: string) {
@@ -224,9 +226,10 @@ function getOrCreateTurn(
   sessionID: string,
   agent: string,
   messageID: string,
+  turnID: string,
   step?: number,
 ) {
-  const key = toTurnKey(sessionID, messageID)
+  const key = toTurnKey(sessionID, turnID)
   const existing = turns.get(key)
   if (existing) {
     if (step !== undefined) existing.step = step
@@ -237,6 +240,7 @@ function getOrCreateTurn(
     sessionID,
     agent,
     messageID,
+    turnID,
     step: step ?? 0,
     toolCalls: [],
     retries: [],

@@ -54,7 +54,7 @@ export function handleTraceEvent(
   event: RuntimeEvent,
   store: RuntimeContext["session_store"],
   sessionPaths: Map<string, string[]>,
-  activeTurns: Map<string, { messageID: string; agent: string; reasoningEntryID?: string; answerEntryID?: string }>,
+  activeTurns: Map<string, { turnID: string; agent: string; reasoningEntryID?: string; answerEntryID?: string }>,
   activeTools: Map<string, string[]>,
   createTraceID: () => string,
   setTraceEntries: Setter<TraceEntry[]>,
@@ -118,7 +118,7 @@ export function handleTraceEvent(
   }
 
   if (event.type === "turn-start") {
-    activeTurns.set(event.sessionID, { messageID: event.messageID, agent: event.agent })
+    activeTurns.set(event.sessionID, { turnID: event.turnID, agent: event.agent })
     return
   }
 

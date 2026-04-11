@@ -33,7 +33,8 @@ export class TurnLifecycle {
       type: "turn-start",
       sessionID: this.context.session.id,
       agent: this.context.agent.name,
-      messageID: this.context.assistant.id,
+      messageID: this.context.assistant.parentID,
+      turnID: this.context.assistant.id,
       step: this.resolveTurnStep(),
     })
   }
@@ -50,7 +51,8 @@ export class TurnLifecycle {
       type: "turn-phase",
       sessionID: this.context.session.id,
       agent: this.context.agent.name,
-      messageID: this.context.assistant.id,
+      messageID: this.context.assistant.parentID,
+      turnID: this.context.assistant.id,
       phase,
     })
   }
@@ -65,7 +67,8 @@ export class TurnLifecycle {
       type: "reasoning",
       sessionID: this.context.session.id,
       agent: this.context.agent.name,
-      messageID: this.context.assistant.id,
+      messageID: this.context.assistant.parentID,
+      turnID: this.context.assistant.id,
       textDelta,
     })
 
@@ -99,7 +102,8 @@ export class TurnLifecycle {
       type: "text",
       sessionID: this.context.session.id,
       agent: this.context.agent.name,
-      messageID: this.context.assistant.id,
+      messageID: this.context.assistant.parentID,
+      turnID: this.context.assistant.id,
       textDelta,
     })
 
@@ -138,7 +142,8 @@ export class TurnLifecycle {
       type: "finish",
       sessionID: this.context.session.id,
       agent: this.context.agent.name,
-      messageID: this.context.assistant.id,
+      messageID: this.context.assistant.parentID,
+      turnID: this.context.assistant.id,
       finishReason: finishReason ?? "stop",
     })
 
@@ -160,7 +165,8 @@ export class TurnLifecycle {
       type: "error",
       sessionID: this.context.session.id,
       agent: this.context.agent.name,
-      messageID: this.context.assistant.id,
+      messageID: this.context.assistant.parentID,
+      turnID: this.context.assistant.id,
       error: error.message,
     })
 
@@ -186,7 +192,8 @@ export class TurnLifecycle {
       type: "turn-abort",
       sessionID: this.context.session.id,
       agent: this.context.agent.name,
-      messageID: this.context.assistant.id,
+      messageID: this.context.assistant.parentID,
+      turnID: this.context.assistant.id,
       durationMs: Date.now() - this.context.startedAt,
     })
   }
@@ -196,7 +203,8 @@ export class TurnLifecycle {
       type: "structured-output",
       sessionID: this.context.session.id,
       agent: this.context.agent.name,
-      messageID: this.context.assistant.id,
+      messageID: this.context.assistant.parentID,
+      turnID: this.context.assistant.id,
       output,
     })
 
@@ -210,7 +218,8 @@ export class TurnLifecycle {
       type: "turn-complete",
       sessionID: this.context.session.id,
       agent: this.context.agent.name,
-      messageID: this.context.assistant.id,
+      messageID: this.context.assistant.parentID,
+      turnID: this.context.assistant.id,
       finishReason,
       durationMs: Date.now() - this.context.startedAt,
       toolCalls: this.context.toolCalls,
@@ -302,7 +311,8 @@ export function applyTurnOutcome(input: {
     type: "turn-outcome",
     sessionID: input.context.sessionID,
     agent: input.state.agent.name,
-    messageID: input.state.assistant.id,
+    messageID: input.state.assistant.parentID,
+    turnID: input.state.assistant.id,
     step: input.context.step,
     outcome: input.outcome.kind,
     reason: input.outcome.reason,

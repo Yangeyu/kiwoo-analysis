@@ -123,6 +123,7 @@ function createEventForwarder(input: {
       input.writer.send("message-metadata", {
         sessionID: event.sessionID,
         messageID: event.messageID,
+        turnID: event.turnID,
         agent: event.agent,
         step: event.step,
       })
@@ -133,23 +134,26 @@ function createEventForwarder(input: {
       input.writer.send("reasoning-delta", {
         sessionID: event.sessionID,
         messageID: event.messageID,
+        turnID: event.turnID,
         delta: event.textDelta,
       })
       return
     }
 
     if (event.type === "text") {
-      if (!textStarted.has(event.messageID)) {
-        textStarted.add(event.messageID)
+      if (!textStarted.has(event.turnID)) {
+        textStarted.add(event.turnID)
         input.writer.send("text-start", {
           sessionID: event.sessionID,
           messageID: event.messageID,
+          turnID: event.turnID,
         })
       }
 
       input.writer.send("text-delta", {
         sessionID: event.sessionID,
         messageID: event.messageID,
+        turnID: event.turnID,
         delta: event.textDelta,
       })
       return
@@ -159,6 +163,7 @@ function createEventForwarder(input: {
       input.writer.send("tool-call", {
         sessionID: event.sessionID,
         messageID: event.messageID,
+        turnID: event.turnID,
         toolCall: {
           toolCallId: event.toolCallId,
           toolName: event.tool,
@@ -172,6 +177,7 @@ function createEventForwarder(input: {
       input.writer.send("tool-call", {
         sessionID: event.sessionID,
         messageID: event.messageID,
+        turnID: event.turnID,
         toolCall: {
           toolCallId: event.toolCallId,
           toolName: event.tool,
@@ -186,6 +192,7 @@ function createEventForwarder(input: {
       input.writer.send("tool-result", {
         sessionID: event.sessionID,
         messageID: event.messageID,
+        turnID: event.turnID,
         toolResult: {
           toolCallId: event.toolCallId,
           toolName: event.tool,
@@ -202,6 +209,7 @@ function createEventForwarder(input: {
       input.writer.send("tool-result", {
         sessionID: event.sessionID,
         messageID: event.messageID,
+        turnID: event.turnID,
         toolResult: {
           toolCallId: event.toolCallId,
           toolName: event.tool,
@@ -217,6 +225,7 @@ function createEventForwarder(input: {
       input.writer.send("finish", {
         sessionID: event.sessionID,
         messageID: event.messageID,
+        turnID: event.turnID,
         finishReason: event.finishReason,
       })
       return
@@ -226,6 +235,7 @@ function createEventForwarder(input: {
       input.writer.send("error", {
         sessionID: event.sessionID,
         messageID: event.messageID,
+        turnID: event.turnID,
         error: event.error,
       })
     }

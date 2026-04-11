@@ -1,18 +1,22 @@
 import type { ErrorInfo, ToolAttachment, ToolMetadata, TurnOutcomeReason, TurnPhase } from "@/core/types"
 
+type TurnScopedEvent = {
+  sessionID: string
+  agent: string
+  messageID: string
+  turnID: string
+}
+
 type RuntimeEvent =
   | { type: "session-start"; sessionID: string; agent: string; text: string }
   | { type: "loop-step"; sessionID: string; step: number; agent: string }
-  | {
+  | (TurnScopedEvent & {
       type: "turn-input"
-      sessionID: string
-      agent: string
-      messageID: string
       step: number
       system: string[]
       tools: string[]
       messageCount: number
-    }
+    })
   | {
       type: "budget-hit"
       sessionID: string
@@ -22,84 +26,63 @@ type RuntimeEvent =
       limit: number
       used?: number
     }
-  | { type: "turn-start"; sessionID: string; agent: string; messageID: string; step: number }
-  | {
+  | (TurnScopedEvent & { type: "turn-start"; step: number })
+  | (TurnScopedEvent & {
       type: "retry"
-      sessionID: string
-      agent: string
-      messageID: string
       attempt: number
       delayMs: number
       category: "abort" | "timeout" | "network" | "availability" | "rate_limit" | "unknown"
       reason?: string
       error: string
-    }
-  | {
+    })
+  | (TurnScopedEvent & {
       type: "turn-phase"
-      sessionID: string
-      agent: string
-      messageID: string
       phase: TurnPhase
-    }
-  | { type: "reasoning"; sessionID: string; agent: string; messageID: string; textDelta: string }
-  | { type: "text"; sessionID: string; agent: string; messageID: string; textDelta: string }
-  | { type: "tool-call"; sessionID: string; agent: string; messageID: string; tool: string; toolCallId: string; args: unknown }
-  | { type: "tool-start"; sessionID: string; agent: string; messageID: string; tool: string; toolCallId: string }
-  | {
+    })
+  | (TurnScopedEvent & { type: "reasoning"; textDelta: string })
+  | (TurnScopedEvent & { type: "text"; textDelta: string })
+  | (TurnScopedEvent & { type: "tool-call"; tool: string; toolCallId: string; args: unknown })
+  | (TurnScopedEvent & { type: "tool-start"; tool: string; toolCallId: string })
+  | (TurnScopedEvent & {
       type: "tool-metadata"
-      sessionID: string
-      agent: string
-      messageID: string
       tool: string
       toolCallId: string
       title?: string
       metadata?: ToolMetadata
-    }
-  | {
+    })
+  | (TurnScopedEvent & {
       type: "tool-result"
-      sessionID: string
-      agent: string
-      messageID: string
       tool: string
       toolCallId: string
       output: string
       title?: string
       metadata?: ToolMetadata
       attachments?: ToolAttachment[]
-    }
-  | {
+    })
+  | (TurnScopedEvent & {
       type: "tool-error"
-      sessionID: string
-      agent: string
-      messageID: string
       tool: string
       toolCallId: string
       error: string
       errorInfo?: ErrorInfo
-    }
-  | { type: "structured-output"; sessionID: string; agent: string; messageID: string; output: unknown }
+    })
+  | (TurnScopedEvent & { type: "structured-output"; output: unknown })
   | { type: "compaction"; sessionID: string; summary: string }
-  | { type: "finish"; sessionID: string; agent: string; messageID: string; finishReason: string }
-  | {
+  | (TurnScopedEvent & { type: "finish"; finishReason: string })
+  | (TurnScopedEvent & {
       type: "turn-outcome"
-      sessionID: string
-      agent: string
-      messageID: string
       step: number
       outcome: "continue" | "compact" | "break"
       reason: TurnOutcomeReason
-    }
-  | {
+    })
+  | (TurnScopedEvent & {
       type: "turn-complete"
-      sessionID: string
-      agent: string
-      messageID: string
       finishReason: string
       durationMs: number
       toolCalls: number
-    }
-  | { type: "turn-abort"; sessionID: string; agent: string; messageID: string; durationMs: number }
-  | { type: "error"; sessionID: string; agent: string; messageID: string; error: string }
+    })
+  | (TurnScopedEvent & { type: "turn-abort"; durationMs: number })
+  | (TurnScopedEvent & { type: "error"; error: string })
 
 type Listener = (event: RuntimeEvent) => void
 

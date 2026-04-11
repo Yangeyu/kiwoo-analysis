@@ -10,7 +10,7 @@ function parseArgs(argv: string[]) {
   let sessionID: string | undefined
   let trace = false
   let replayStep: number | undefined
-  let replayMessageID: string | undefined
+  let replayTurnID: string | undefined
   let tui = false
   let outputMode: OutputMode = "stream"
   let textParts: string[] = []
@@ -42,8 +42,8 @@ function parseArgs(argv: string[]) {
       }
       throw new Error(`Invalid --replay-step value: ${value ?? ""}`)
     }
-    if (token === "--replay-message") {
-      replayMessageID = args.shift() ?? replayMessageID
+    if (token === "--replay-turn" || token === "--replay-message") {
+      replayTurnID = args.shift() ?? replayTurnID
       continue
     }
     if (token === "--tui") {
@@ -65,7 +65,7 @@ function parseArgs(argv: string[]) {
     sessionID,
     trace,
     replayStep,
-    replayMessageID,
+    replayTurnID,
     tui,
     outputMode,
     text: textParts.join(" ").trim(),
@@ -73,11 +73,11 @@ function parseArgs(argv: string[]) {
 }
 
 function validateArgs(parsed: ReturnType<typeof parseArgs>) {
-  if (parsed.replayStep !== undefined && parsed.replayMessageID) {
-    throw new Error("Use either --replay-step or --replay-message, not both")
+  if (parsed.replayStep !== undefined && parsed.replayTurnID) {
+    throw new Error("Use either --replay-step or --replay-turn, not both")
   }
 
-  if (parsed.tui && (parsed.trace || parsed.replayStep !== undefined || parsed.replayMessageID)) {
+  if (parsed.tui && (parsed.trace || parsed.replayStep !== undefined || parsed.replayTurnID)) {
     throw new Error("Trace and replay debug output are only supported in CLI mode")
   }
 }
@@ -87,11 +87,12 @@ function printDebugSection(label: string, value: unknown) {
   console.log(JSON.stringify(value, null, 2))
 }
 
-function toReplayDebugSnapshot(runtime: Awaited<ReturnType<typeof createAppRuntime>>, selector: { sessionID: string; step: number } | { sessionID: string; messageID: string }) {
+function toReplayDebugSnapshot(runtime: Awaited<ReturnType<typeof createAppRuntime>>, selector: { sessionID: string; step: number } | { sessionID: string; turnID: string }) {
   const replay = runtime.replay.turnInput(selector)
   return {
     sessionID: replay.sessionID,
     messageID: replay.messageID,
+    turnID: replay.turnID,
     step: replay.step,
     agent: replay.agent,
     system: replay.system,
@@ -137,7 +138,7 @@ async function main() {
       return
     }
 
-    console.log(`Usage: bun run start [--agent ${defaultAgent}] [--session <id>] [--json] [--trace] [--replay-step <n>] [--replay-message <id>] [--output stream|buffered] "your prompt"`)
+    console.log(`Usage: bun run start [--agent ${defaultAgent}] [--session <id>] [--json] [--trace] [--replay-step <n>] [--replay-turn <id>] [--output stream|buffered] "your prompt"`)
     console.log("Example: bun run start \"read src/core/session/prompt.ts and explain the loop\"")
     console.log("Interactive terminals can also launch the TUI with: bun run tui")
     return
@@ -164,10 +165,10 @@ async function main() {
       }))
     }
 
-    if (parsed.replayMessageID) {
+    if (parsed.replayTurnID) {
       printDebugSection("replay", toReplayDebugSnapshot(runtime, {
         sessionID: session.id,
-        messageID: parsed.replayMessageID,
+        turnID: parsed.replayTurnID,
       }))
     }
   } finally {

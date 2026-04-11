@@ -109,7 +109,7 @@
 
 `RuntimeContext.trace` 会基于这些事件收集导出的 turn trace，当前最小字段包括：
 
-- `sessionID`、`agent`、`messageID`、`step`
+- `sessionID`、`agent`、`messageID`、`turnID`、`step`
 - `system`、`tools`、`messageCount`
 - `toolCalls`
 - `retries`
@@ -119,7 +119,7 @@
 
 `RuntimeContext.replay` 当前提供最小 replay 入口：
 
-- `turnInput({ sessionID, messageID })`
+- `turnInput({ sessionID, turnID })`
 - `turnInput({ sessionID, step })`
 
 返回结果会重建当时的：
@@ -135,7 +135,7 @@ CLI 当前已经提供最小调试出口：
 
 - `bun run start --trace "..."`
 - `bun run start --replay-step <n> "..."`
-- `bun run start --replay-message <id> "..."`
+- `bun run start --replay-turn <id> "..."`
 
 这些出口直接读取当前 runtime 实例上的 `trace` / `replay`，因此只覆盖本次 CLI 进程内执行过的 turn。
 

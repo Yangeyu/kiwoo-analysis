@@ -146,6 +146,7 @@ tool metadata key 约定优先使用 `camelCase`，例如：
   - 创建或续跑 child session 前，会校验 `subagent_max_depth`，避免无限递归委派
   - 子 agent 结束后，`task` 读取 child session 的最终文本结果，并把它作为普通 tool output 返回给父上下文
   - delegation result metadata 统一记录 `taskId`、`sessionId`、`parentSessionId`、`agentName`、`subagentName`、`resume` 等关键字段
+  - 创建 child session 后，会立刻补发一次带 `sessionId` 的 tool metadata 更新；前端可用 `title` / `description` 作为该子任务 CoT 区块标题，而不必等子任务结束
 
 board 模块当前的最终报告落盘逻辑保持在 `src/board/tools/board-report-write.ts`，`task` 本身不再承担 artifact 透传协议。
 
