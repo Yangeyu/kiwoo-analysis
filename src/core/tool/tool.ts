@@ -47,7 +47,6 @@ type DefineToolOptions<P extends z.ZodType> = {
   id: string
   description: string
   parameters: P
-  jsonSchema?: Record<string, unknown>
   execute: (args: z.infer<P>, ctx: ToolContext) => Promise<ToolExecuteResult>
   beforeExecute?: (input: ToolHookInput<z.infer<P>>) => Awaitable<ToolMetadataUpdate | void>
   afterExecute?: (input: ToolAfterExecuteInput<z.infer<P>>) => Awaitable<(Partial<ToolExecuteResult> & ToolMetadataUpdate) | void>
@@ -98,15 +97,14 @@ export function formatToolValidationError(toolID: string, error: z.ZodError) {
 export function defineTool<P extends z.ZodType>(
   options: DefineToolOptions<P>,
 ): ToolDefinition<z.infer<P>> {
-  const { id, description, parameters, jsonSchema } = options
+  const { id, description, parameters } = options
 
   return {
     id,
     description,
     parameters,
-    jsonSchema,
     validate(args) {
-      return validateToolArgs(this, args)
+      return parseToolArgs(id, parameters, args)
     },
     async execute(args, ctx) {
       return await executeTool(options, args, ctx)
@@ -132,10 +130,6 @@ async function executeTool<P extends z.ZodType>(
   } catch (error) {
     throw wrapToolError(options, args, ctx, error)
   }
-}
-
-function validateToolArgs<P extends z.ZodType>(tool: ToolDefinition<z.infer<P>>, args: unknown) {
-  return parseToolArgs(tool.id, tool.parameters, args)
 }
 
 // Internal helpers

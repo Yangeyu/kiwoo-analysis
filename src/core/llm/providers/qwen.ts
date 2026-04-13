@@ -3,7 +3,7 @@ import { resolveModelSpec } from "@/core/llm/models"
 import { createStreamingProvider } from "@/core/llm/providers/create"
 import type { ProviderRequest } from "@/core/llm/providers/create"
 import type { LLMChunk, LLMInput, ModelContentBlock, ModelMessage } from "@/core/llm/types"
-import { createID, type ToolDefinition } from "@/core/types"
+import { createID, ToolDefinition } from "@/core/types"
 import { zodToJsonSchema } from "zod-to-json-schema"
 
 type QwenToolDefinition = {
@@ -245,7 +245,7 @@ function buildQwenTools(tools: ToolDefinition[]): QwenToolDefinition[] {
     function: {
       name: tool.id,
       description: tool.description,
-      parameters: tool.jsonSchema ?? zodToJsonSchema(tool.parameters, { $refStrategy: "none" }),
+      parameters: zodToJsonSchema(tool.parameters, { $refStrategy: "none" }),
     },
   }))
 }

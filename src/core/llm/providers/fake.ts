@@ -88,7 +88,7 @@ async function* fakeChunkStream(input: LLMInput, _state: FakeState): AsyncGenera
           },
           {
             tool: "grep",
-            parameters: { pattern: "StructuredOutput" },
+            parameters: { pattern: "structured-output" },
           },
         ],
       },
@@ -152,13 +152,11 @@ async function* fakeChunkStream(input: LLMInput, _state: FakeState): AsyncGenera
   if (input.user.format?.type === "json_schema") {
     yield {
       type: "reasoning",
-      textDelta: "Responding through the injected StructuredOutput tool. ",
+      textDelta: "Returning the final answer as structured JSON. ",
     }
     yield {
-      type: "tool-call",
-      toolCallId: createID(),
-      toolName: "StructuredOutput",
-      args: {
+      type: "text-delta",
+      textDelta: JSON.stringify({
         boardId: "unknown",
         title: `Structured response for ${input.agent.name}`,
         abstract: `Synthetic structured report for: ${userText}`,
@@ -171,9 +169,9 @@ async function* fakeChunkStream(input: LLMInput, _state: FakeState): AsyncGenera
         ],
         conclusion: "Fake-mode conclusion.",
         sources: [],
-      },
+      }),
     }
-    yield { type: "finish", finishReason: "tool-calls" }
+    yield { type: "finish", finishReason: "stop" }
     return
   }
 

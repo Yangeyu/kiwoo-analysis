@@ -19,6 +19,28 @@ export class ToolCallExecutor {
     return outcome.kind === "stop" ? { kind: "stop" } : { kind: "continue" }
   }
 
+  private getToolEventBase(tool: string, toolCallId: string) {
+    return {
+      sessionID: this.context.session.id,
+      agent: this.context.agent.name,
+      messageID: this.context.assistant.parentID,
+      turnID: this.context.assistant.id,
+      tool,
+      toolCallId,
+    }
+  }
+
+  private stopTurn(error: ErrorInfo, text: string) {
+    this.lifecycle.fail(error)
+    this.context.session_store.appendTextPart(this.context.session.id, this.context.assistant.id, {
+      id: createID(),
+      type: "text",
+      text,
+      synthetic: true,
+    })
+    return { kind: "stop" } as const
+  }
+
   private async executeCall(chunk: { toolCallId: string; toolName: string; args: unknown }): Promise<
     | { kind: "completed"; result: Awaited<ReturnType<ToolDefinition<unknown>["execute"]>> }
     | { kind: "error"; error: ErrorInfo }
@@ -28,23 +50,13 @@ export class ToolCallExecutor {
 
     this.context.events.emit({
       type: "tool-call",
-      sessionID: this.context.session.id,
-      agent: this.context.agent.name,
-      messageID: this.context.assistant.parentID,
-      turnID: this.context.assistant.id,
-      tool: chunk.toolName,
-      toolCallId: chunk.toolCallId,
+      ...this.getToolEventBase(chunk.toolName, chunk.toolCallId),
       args: chunk.args,
     })
 
     this.context.events.emit({
       type: "tool-start",
-      sessionID: this.context.session.id,
-      agent: this.context.agent.name,
-      messageID: this.context.assistant.parentID,
-      turnID: this.context.assistant.id,
-      tool: chunk.toolName,
-      toolCallId: chunk.toolCallId,
+      ...this.getToolEventBase(chunk.toolName, chunk.toolCallId),
     })
 
     this.context.reasoningPart = undefined
@@ -76,18 +88,11 @@ export class ToolCallExecutor {
         retryable: false,
         code: "tool_budget_exceeded",
       })
-      this.lifecycle.fail({
+      return this.stopTurn({
         message: `Tool call budget exceeded for turn (${this.context.policy.budget.maxToolCalls})`,
         retryable: false,
         code: "tool_budget_exceeded",
-      })
-      this.context.session_store.appendTextPart(this.context.session.id, this.context.assistant.id, {
-        id: createID(),
-        type: "text",
-        text: "\n\n[Stopped: tool call budget exceeded]",
-        synthetic: true,
-      })
-      return { kind: "stop" }
+      }, "\n\n[Stopped: tool call budget exceeded]")
     }
 
     const tool = this.context.tools.find((item) => item.id === chunk.toolName)
@@ -116,18 +121,11 @@ export class ToolCallExecutor {
         retryable: false,
         code: "doom_loop",
       })
-        this.lifecycle.fail({
-          message: `Potential doom loop detected for tool ${chunk.toolName}`,
-          retryable: false,
-          code: "doom_loop",
-      })
-      this.context.session_store.appendTextPart(this.context.session.id, this.context.assistant.id, {
-        id: createID(),
-        type: "text",
-        text: "\n\n[Stopped: repeated identical tool calls detected]",
-        synthetic: true,
-      })
-      return { kind: "stop" }
+      return this.stopTurn({
+        message: `Potential doom loop detected for tool ${chunk.toolName}`,
+        retryable: false,
+        code: "doom_loop",
+      }, "\n\n[Stopped: repeated identical tool calls detected]")
     }
 
     this.context.recentToolCalls.push({
@@ -141,12 +139,7 @@ export class ToolCallExecutor {
 
       this.context.events.emit({
         type: "tool-result",
-        sessionID: this.context.session.id,
-        agent: this.context.agent.name,
-        messageID: this.context.assistant.parentID,
-        turnID: this.context.assistant.id,
-        tool: chunk.toolName,
-        toolCallId: chunk.toolCallId,
+        ...this.getToolEventBase(chunk.toolName, chunk.toolCallId),
         output: toolResult.output,
         title: toolResult.title,
         metadata: toolResult.metadata,
@@ -164,12 +157,7 @@ export class ToolCallExecutor {
         }))
         this.context.events.emit({
           type: "tool-error",
-          sessionID: this.context.session.id,
-          agent: this.context.agent.name,
-          messageID: this.context.assistant.parentID,
-          turnID: this.context.assistant.id,
-          tool: chunk.toolName,
-          toolCallId: chunk.toolCallId,
+          ...this.getToolEventBase(chunk.toolName, chunk.toolCallId),
           error: "Aborted",
           errorInfo: {
             message: "Aborted",
@@ -202,18 +190,11 @@ export class ToolCallExecutor {
       used: this.context.policy.budget.repeatedToolFailureThreshold,
     })
 
-    this.lifecycle.fail({
+    return this.stopTurn({
       message: `Repeated identical tool failures detected for ${toolName}`,
       retryable: false,
       code: "repeated_tool_failure",
-    })
-    this.context.session_store.appendTextPart(this.context.session.id, this.context.assistant.id, {
-      id: createID(),
-      type: "text",
-      text: "\n\n[Stopped: repeated identical tool failures detected]",
-      synthetic: true,
-    })
-    return { kind: "stop" }
+    }, "\n\n[Stopped: repeated identical tool failures detected]")
   }
 
   private markToolPartError(part: ToolPart, input: unknown, error: ErrorInfo) {
@@ -233,12 +214,7 @@ export class ToolCallExecutor {
     )
     this.context.events.emit({
       type: "tool-error",
-      sessionID: this.context.session.id,
-      agent: this.context.agent.name,
-      messageID: this.context.assistant.parentID,
-      turnID: this.context.assistant.id,
-      tool: latestPart.toolName,
-      toolCallId: latestPart.toolCallId,
+      ...this.getToolEventBase(latestPart.toolName, latestPart.toolCallId),
       error: error.message,
       errorInfo: error,
     })
@@ -302,9 +278,7 @@ export class ToolCallExecutor {
       skill_registry: context.skill_registry,
       tool_registry: context.tool_registry,
       metadata: async (metadataUpdate: { title?: string; metadata?: Record<string, unknown> }) => {
-        const latest = context.session_store.getParts(context.session.id, context.assistant.id).find(
-          (item): item is ToolPart => item.id === part.id && item.type === "tool",
-        )
+        const latest = this.getLatestToolPart(part)
         if (!latest) return
 
         context.session_store.updatePart(
@@ -319,12 +293,7 @@ export class ToolCallExecutor {
 
         context.events.emit({
           type: "tool-metadata",
-          sessionID: context.session.id,
-          agent: context.agent.name,
-          messageID: context.assistant.parentID,
-          turnID: context.assistant.id,
-          tool: latest.toolName,
-          toolCallId: latest.toolCallId,
+          ...this.getToolEventBase(latest.toolName, latest.toolCallId),
           title: metadataUpdate.title,
           metadata: metadataUpdate.metadata,
         })
@@ -351,9 +320,6 @@ export class ToolCallExecutor {
         }
 
         throw new Error(`Nested tool execution stopped while running ${input.toolName}`)
-      },
-      captureStructuredOutput: async (output: unknown) => {
-        lifecycle.captureStructuredOutput(output)
       },
     }
   }

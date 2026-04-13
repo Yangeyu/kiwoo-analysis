@@ -181,7 +181,6 @@ function createToolContextStub(): ToolContext {
         retryable: false,
       },
     }),
-    captureStructuredOutput: async () => {},
   }
 }
 

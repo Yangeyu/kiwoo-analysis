@@ -2,7 +2,6 @@ import type { RuntimeDeps } from "@/core/runtime/context"
 import { createTurnAbortSignal, resolveTurnExecutionPolicy } from "@/core/session/execution-policy"
 import { withDelegationDescription } from "@/core/tool/task"
 import { withSkillDescription } from "@/core/tool/skill"
-import { defineTool } from "@/core/tool/tool"
 import { toModelMessages } from "@/core/session/model-message"
 import { SessionProcessor } from "@/core/session/processor"
 import { buildSystemPrompt } from "@/core/session/system"
@@ -12,10 +11,7 @@ import {
   type PromptLoopContext,
   type PromptTurnState,
 } from "@/core/session/turn-lifecycle"
-import { createID, type AgentInfo, type AssistantMessage, type ProviderModel, type ToolDefinition, type UserMessage } from "@/core/types"
-import { z } from "zod"
-
-const StructuredOutputParameters = z.unknown()
+import { createID, type AgentInfo, type AssistantMessage, type ProviderModel, type UserMessage } from "@/core/types"
 
 type PromptInput = {
   sessionID: string
@@ -128,7 +124,6 @@ async function prepareLoopState(context: PromptLoopContext): Promise<PromptTurnS
     context.agent_registry,
     context.skill_registry,
     agent,
-    user.format,
   )
   const assistant = createAssistantMessage(session.id, user, agent)
   context.session_store.appendAssistantMessage(session.id, assistant)
@@ -238,7 +233,6 @@ async function resolveToolsForTurn(
   agentRegistry: RuntimeDeps["agent_registry"],
   skillRegistry: RuntimeDeps["skill_registry"],
   agent: AgentInfo,
-  format: UserMessage["format"],
 ) {
   const tools = [...(await toolRegistry.toolsForAgent(agent))].map((tool) => {
     if (tool.id === "skill") {
@@ -258,29 +252,5 @@ async function resolveToolsForTurn(
     })
   })
 
-  if (format?.type === "json_schema") {
-    tools.push(createStructuredOutputTool(format.schema))
-  }
-
   return tools
-}
-
-function createStructuredOutputTool(schema: Record<string, unknown>): ToolDefinition<unknown> {
-  return defineTool({
-    id: "StructuredOutput",
-    description: "Return the final response in the requested structured format.",
-    parameters: StructuredOutputParameters,
-    jsonSchema: schema,
-    async execute(args, ctx) {
-      void schema
-      await ctx.captureStructuredOutput(args)
-      return {
-        title: "Structured Output",
-        output: "Structured output captured successfully.",
-        metadata: {
-          valid: true,
-        },
-      }
-    },
-  })
 }

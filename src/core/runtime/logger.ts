@@ -123,10 +123,6 @@ function formatToolLabel(tool: string, args: unknown) {
     return calls ? `Run batch (${calls})` : "Run batch"
   }
 
-  if (tool === "StructuredOutput") {
-    return "Return structured output"
-  }
-
   return `${tool} ${preview(args, 80)}`
 }
 

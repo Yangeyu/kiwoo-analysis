@@ -1,3 +1,4 @@
+import { buildStructuredOutputSystemPrompt } from "@/core/session/structured-output"
 import type { AgentInfo, UserMessage } from "@/core/types"
 import type { SkillInfo } from "@/core/skill/types"
 
@@ -12,12 +13,6 @@ const BASE_SYSTEM_PROMPT = [
 const TOOL_USE_SYSTEM_PROMPT = [
   "If the task requires external information or an action, call the appropriate tool instead of guessing.",
   "After receiving a tool result, either continue with another needed tool call or produce the final answer.",
-].join(" ")
-
-const STRUCTURED_OUTPUT_SYSTEM_PROMPT = [
-  "IMPORTANT: The user requested structured output.",
-  "You must call the StructuredOutput tool exactly once at the end.",
-  "Do not return the final answer as plain text.",
 ].join(" ")
 
 export function buildSystemPrompt(input: {
@@ -47,9 +42,8 @@ export function buildSystemPrompt(input: {
     prompts.push("Continue the existing task and use any new context to make concrete progress.")
   }
 
-  if (input.format?.type === "json_schema") {
-    prompts.push(STRUCTURED_OUTPUT_SYSTEM_PROMPT)
-  }
+  const structuredOutputPrompt = buildStructuredOutputSystemPrompt(input.format)
+  if (structuredOutputPrompt) prompts.push(structuredOutputPrompt)
 
   return prompts
 }

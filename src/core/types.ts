@@ -146,14 +146,12 @@ export type ToolContext = RuntimeDeps & {
         error: ErrorInfo
       }
   >
-  captureStructuredOutput(output: unknown): Promise<void>
 }
 
 export type ToolDefinition<TArgs = unknown> = {
   id: string
   description: string
   parameters: z.ZodType<TArgs>
-  jsonSchema?: Record<string, unknown>
   validate(args: unknown):
     | {
         success: true

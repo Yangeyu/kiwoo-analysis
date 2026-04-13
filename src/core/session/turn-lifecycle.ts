@@ -2,6 +2,7 @@ import type { RuntimeDeps } from "@/core/runtime/context"
 import { SessionCompaction } from "@/core/session/compaction"
 import type { ProcessorContext } from "@/core/session/processor-context"
 import type { TurnExecutionPolicy } from "@/core/session/execution-policy"
+import { hasStructuredOutputFormat, parseStructuredOutputText } from "@/core/session/structured-output"
 import {
   createID,
   type AgentInfo,
@@ -129,9 +130,20 @@ export class TurnLifecycle {
   }
 
   finish(finishReason: ProcessorContext["assistant"]["finish"]) {
+    const structured = this.resolveStructuredOutput()
+    if (structured?.error) {
+      this.fail({
+        message: structured.error,
+        retryable: false,
+        code: "invalid_structured_output",
+      })
+      return
+    }
+
     this.enterPhase("finishing")
     this.context.assistant = this.context.session_store.updateMessage(this.context.session.id, this.context.assistant.id, {
       finish: finishReason,
+      ...(structured ? { structured: structured.data } : {}),
       time: {
         ...this.context.assistant.time,
         completed: Date.now(),
@@ -146,6 +158,17 @@ export class TurnLifecycle {
       turnID: this.context.assistant.id,
       finishReason: finishReason ?? "stop",
     })
+
+    if (structured) {
+      this.context.events.emit({
+        type: "structured-output",
+        sessionID: this.context.session.id,
+        agent: this.context.agent.name,
+        messageID: this.context.assistant.parentID,
+        turnID: this.context.assistant.id,
+        output: structured.data,
+      })
+    }
 
     this.emitTurnComplete(finishReason ?? "stop")
   }
@@ -198,21 +221,6 @@ export class TurnLifecycle {
     })
   }
 
-  captureStructuredOutput(output: unknown) {
-    this.context.events.emit({
-      type: "structured-output",
-      sessionID: this.context.session.id,
-      agent: this.context.agent.name,
-      messageID: this.context.assistant.parentID,
-      turnID: this.context.assistant.id,
-      output,
-    })
-
-    this.context.assistant = this.context.session_store.updateMessage(this.context.session.id, this.context.assistant.id, {
-      structured: output,
-    })
-  }
-
   private emitTurnComplete(finishReason: string) {
     this.context.events.emit({
       type: "turn-complete",
@@ -229,6 +237,15 @@ export class TurnLifecycle {
   private resolveTurnStep() {
     const session = this.context.session_store.get(this.context.session.id)
     return session.messages.filter((message) => message.role === "assistant").length
+  }
+
+  private resolveStructuredOutput() {
+    if (!hasStructuredOutputFormat(this.context.user.format)) return undefined
+
+    const text = this.context.session_store.getMessageText(this.context.session.id, this.context.assistant.id, {
+      includeSynthetic: false,
+    })
+    return parseStructuredOutputText(text)
   }
 }
 
