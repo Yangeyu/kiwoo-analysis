@@ -72,6 +72,14 @@ function clipLines(text: string, maxLines: number) {
   return `${lines.slice(0, maxLines).join("\n")}\n...`
 }
 
+function prettyStructuredOutput(value: unknown) {
+  try {
+    return JSON.stringify(value, null, 2)
+  } catch {
+    return String(value)
+  }
+}
+
 function toTurnID(key: TurnKey) {
   return `${key.sessionID}:${key.agent}`
 }
@@ -365,6 +373,8 @@ class ConsoleLogger {
 
     if (event.type === "structured-output") {
       printLine(`${style("[ok]", ANSI.green, ANSI.bold)} structured output captured`)
+      printLine(prettyStructuredOutput(event.output))
+      blankLine()
       return
     }
 
