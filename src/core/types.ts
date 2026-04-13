@@ -154,6 +154,15 @@ export type ToolDefinition<TArgs = unknown> = {
   description: string
   parameters: z.ZodType<TArgs>
   jsonSchema?: Record<string, unknown>
+  validate(args: unknown):
+    | {
+        success: true
+        data: TArgs
+      }
+    | {
+        success: false
+        error: ErrorInfo
+      }
   execute(args: TArgs, ctx: ToolContext): Promise<ToolExecuteResult>
 }
 

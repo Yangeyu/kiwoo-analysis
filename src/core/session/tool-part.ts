@@ -53,8 +53,8 @@ export function toCompletedToolPart(part: ToolPart, input: unknown, result: Tool
       status: "completed",
       input,
       output: result.output,
-      title: result.title,
-      metadata: result.metadata,
+      title: result.title ?? part.state.title,
+      metadata: mergeMetadata(part.state.metadata, result.metadata),
       attachments: result.attachments,
       time: {
         start: part.state.time?.start ?? Date.now(),
@@ -92,12 +92,7 @@ export function toErroredToolPart(
 
 export function toMetadataPatchedToolPart(part: ToolPart, input: { title?: string; metadata?: ToolMetadata }): ToolPart {
   const nextTitle = input.title === undefined ? part.state.title : input.title
-  const nextMetadata = input.metadata === undefined
-    ? part.state.metadata
-    : {
-        ...(part.state.metadata ?? {}),
-        ...input.metadata,
-      }
+  const nextMetadata = mergeMetadata(part.state.metadata, input.metadata)
 
   return {
     ...part,
@@ -106,5 +101,15 @@ export function toMetadataPatchedToolPart(part: ToolPart, input: { title?: strin
       title: nextTitle,
       metadata: nextMetadata,
     },
+  }
+}
+
+function mergeMetadata(base: ToolMetadata | undefined, patch: ToolMetadata | undefined) {
+  if (base === undefined) return patch
+  if (patch === undefined) return base
+
+  return {
+    ...base,
+    ...patch,
   }
 }

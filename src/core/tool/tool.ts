@@ -47,6 +47,7 @@ type DefineToolOptions<P extends z.ZodType> = {
   id: string
   description: string
   parameters: P
+  jsonSchema?: Record<string, unknown>
   execute: (args: z.infer<P>, ctx: ToolContext) => Promise<ToolExecuteResult>
   beforeExecute?: (input: ToolHookInput<z.infer<P>>) => Awaitable<ToolMetadataUpdate | void>
   afterExecute?: (input: ToolAfterExecuteInput<z.infer<P>>) => Awaitable<(Partial<ToolExecuteResult> & ToolMetadataUpdate) | void>
@@ -97,38 +98,54 @@ export function formatToolValidationError(toolID: string, error: z.ZodError) {
 export function defineTool<P extends z.ZodType>(
   options: DefineToolOptions<P>,
 ): ToolDefinition<z.infer<P>> {
-  const { id, description, parameters } = options
+  const { id, description, parameters, jsonSchema } = options
 
   return {
     id,
     description,
     parameters,
+    jsonSchema,
+    validate(args) {
+      return validateToolArgs(this, args)
+    },
     async execute(args, ctx) {
-      const parsedArgs = parseToolArgs(id, parameters, args)
-
-      try {
-        await runBeforeExecute(options, parsedArgs, ctx)
-        const baseResult = await runToolExecute(options, parsedArgs, ctx)
-        const resultWithHooks = await runAfterExecute(options, parsedArgs, ctx, baseResult)
-        const normalizedResult = finalizeToolResult(options, parsedArgs, ctx, resultWithHooks)
-        await applyMetadataUpdate(ctx, {
-          title: normalizedResult.title,
-          metadata: normalizedResult.metadata,
-        })
-        return normalizedResult
-      } catch (error) {
-        throw wrapToolError(options, parsedArgs, ctx, error)
-      }
+      return await executeTool(options, args, ctx)
     },
   }
 }
 
-export function validateToolArgs<P extends z.ZodType>(tool: ToolDefinition<z.infer<P>>, args: unknown) {
-  const parsed = tool.parameters.safeParse(args)
+async function executeTool<P extends z.ZodType>(
+  options: DefineToolOptions<P>,
+  args: z.infer<P>,
+  ctx: ToolContext,
+) {
+  try {
+    await runBeforeExecute(options, args, ctx)
+    const baseResult = await runToolExecute(options, args, ctx)
+    const resultWithHooks = await runAfterExecute(options, args, ctx, baseResult)
+    const normalizedResult = finalizeToolResult(options, args, ctx, resultWithHooks)
+    await applyMetadataUpdate(ctx, {
+      title: normalizedResult.title,
+      metadata: normalizedResult.metadata,
+    })
+    return normalizedResult
+  } catch (error) {
+    throw wrapToolError(options, args, ctx, error)
+  }
+}
+
+function validateToolArgs<P extends z.ZodType>(tool: ToolDefinition<z.infer<P>>, args: unknown) {
+  return parseToolArgs(tool.id, tool.parameters, args)
+}
+
+// Internal helpers
+
+function parseToolArgs<P extends z.ZodType>(toolID: string, parameters: P, args: unknown) {
+  const parsed = parameters.safeParse(args)
   if (!parsed.success) {
     return {
       success: false as const,
-      error: createToolValidationErrorInfo(tool.id, parsed.error),
+      error: createToolValidationErrorInfo(toolID, parsed.error),
     }
   }
 
@@ -136,19 +153,6 @@ export function validateToolArgs<P extends z.ZodType>(tool: ToolDefinition<z.inf
     success: true as const,
     data: parsed.data,
   }
-}
-
-// Internal helpers
-
-function parseToolArgs<P extends z.ZodType>(toolID: string, parameters: P, args: unknown): z.infer<P> {
-  const parsed = parameters.safeParse(args)
-  if (!parsed.success) {
-    throw new ToolExecutionError(createToolValidationErrorInfo(toolID, parsed.error), {
-      cause: parsed.error,
-    })
-  }
-
-  return parsed.data
 }
 
 async function runBeforeExecute<P extends z.ZodType>(
@@ -229,6 +233,7 @@ function mergeToolResult(result: ToolExecuteResult, patch?: Partial<ToolExecuteR
   return {
     ...result,
     ...patch,
+    metadata: mergeMetadata(result.metadata, patch.metadata),
   }
 }
 
@@ -254,6 +259,16 @@ function normalizeToolResult<TArgs>(input: ToolNormalizedResultInput<TArgs>): To
     ...input.result,
     output,
     metadata,
+  }
+}
+
+function mergeMetadata(base: ToolMetadata | undefined, patch: ToolMetadata | undefined) {
+  if (base === undefined) return patch
+  if (patch === undefined) return base
+
+  return {
+    ...base,
+    ...patch,
   }
 }
 

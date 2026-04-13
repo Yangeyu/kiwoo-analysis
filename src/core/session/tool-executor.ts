@@ -8,7 +8,7 @@ import {
 import { isAbortError, isDoomLoop } from "@/core/session/retry"
 import type { ProcessorContext, ToolExecutionResult } from "@/core/session/processor-context"
 import { TurnLifecycle } from "@/core/session/turn-lifecycle"
-import { toToolExecutionErrorInfo, validateToolArgs } from "@/core/tool/tool"
+import { toToolExecutionErrorInfo } from "@/core/tool/tool"
 import { createID, type ErrorInfo, type SessionHistoryMessage, type ToolContext, type ToolDefinition, type ToolPart } from "@/core/types"
 
 export class ToolCallExecutor {
@@ -101,7 +101,7 @@ export class ToolCallExecutor {
       return this.resolveToolFailure(chunk.toolName, error)
     }
 
-    const parsedCall = validateToolArgs(tool, chunk.args)
+    const parsedCall = tool.validate(chunk.args)
     if (!parsedCall.success) {
       this.markToolPartError(part, chunk.args, parsedCall.error)
       return this.resolveToolFailure(chunk.toolName, parsedCall.error)
@@ -217,21 +217,28 @@ export class ToolCallExecutor {
   }
 
   private markToolPartError(part: ToolPart, input: unknown, error: ErrorInfo) {
+    const latestPart = this.getLatestToolPart(part) ?? part
+
     this.context.recentToolFailures.push({
-      toolName: part.toolName,
+      toolName: latestPart.toolName,
       input,
       error: error.message,
     })
 
-    this.context.session_store.updatePart(this.context.session.id, this.context.assistant.id, part.id, toErroredToolPart(part, input, error))
+    this.context.session_store.updatePart(
+      this.context.session.id,
+      this.context.assistant.id,
+      part.id,
+      toErroredToolPart(latestPart, input, error),
+    )
     this.context.events.emit({
       type: "tool-error",
       sessionID: this.context.session.id,
       agent: this.context.agent.name,
       messageID: this.context.assistant.parentID,
       turnID: this.context.assistant.id,
-      tool: part.toolName,
-      toolCallId: part.toolCallId,
+      tool: latestPart.toolName,
+      toolCallId: latestPart.toolCallId,
       error: error.message,
       errorInfo: error,
     })
@@ -246,7 +253,20 @@ export class ToolCallExecutor {
     input: unknown,
     result: Awaited<ReturnType<ToolDefinition<unknown>["execute"]>>,
   ) {
-    this.context.session_store.updatePart(this.context.session.id, this.context.assistant.id, part.id, toCompletedToolPart(part, input, result))
+    const latestPart = this.getLatestToolPart(part) ?? part
+
+    this.context.session_store.updatePart(
+      this.context.session.id,
+      this.context.assistant.id,
+      part.id,
+      toCompletedToolPart(latestPart, input, result),
+    )
+  }
+
+  private getLatestToolPart(part: ToolPart) {
+    return this.context.session_store.getParts(this.context.session.id, this.context.assistant.id).find(
+      (item): item is ToolPart => item.id === part.id && item.type === "tool",
+    )
   }
 
   private shouldStopForRepeatedToolFailures() {

@@ -2,6 +2,7 @@ import type { RuntimeDeps } from "@/core/runtime/context"
 import { createTurnAbortSignal, resolveTurnExecutionPolicy } from "@/core/session/execution-policy"
 import { withDelegationDescription } from "@/core/tool/task"
 import { withSkillDescription } from "@/core/tool/skill"
+import { defineTool } from "@/core/tool/tool"
 import { toModelMessages } from "@/core/session/model-message"
 import { SessionProcessor } from "@/core/session/processor"
 import { buildSystemPrompt } from "@/core/session/system"
@@ -265,7 +266,7 @@ async function resolveToolsForTurn(
 }
 
 function createStructuredOutputTool(schema: Record<string, unknown>): ToolDefinition<unknown> {
-  return {
+  return defineTool({
     id: "StructuredOutput",
     description: "Return the final response in the requested structured format.",
     parameters: StructuredOutputParameters,
@@ -281,5 +282,5 @@ function createStructuredOutputTool(schema: Record<string, unknown>): ToolDefini
         },
       }
     },
-  }
+  })
 }
